@@ -1,0 +1,1761 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extração de Dados por Revisores em Pares</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- PDF.js CSS & JS CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf_viewer.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --panel-bg: #1e293b;
+            --card-bg: #334155;
+            --border-color: rgba(255, 255, 255, 0.12);
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        select option {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            padding: 0.5rem;
+        }
+
+        /* Header */
+        header {
+            height: 60px;
+            background: #090d16;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.5rem;
+            z-index: 100;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-title h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #a5b4fc;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .cloud-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .cloud-synced { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .cloud-saving { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+        .reviewer-selector, .blind-toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.35rem 0.75rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 42px;
+            height: 22px;
+        }
+
+        .switch input { opacity: 0; width: 0; height: 0; }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--danger);
+            transition: .3s;
+            border-radius: 22px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px; width: 16px;
+            left: 3px; bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 0.45rem 0.9rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover { background: var(--primary-hover); }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+        .btn-danger-sm { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); padding: 0.2rem 0.4rem; font-size: 0.75rem; border-radius: 4px; }
+        .btn-danger-sm:hover { background: rgba(239, 68, 68, 0.4); }
+
+        /* Workspace Grid */
+        .workspace {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Left Column: Studies Library (Collapsible) */
+        .library-panel {
+            width: 320px;
+            min-width: 320px;
+            background: #111827;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .library-panel.collapsed {
+            width: 0 !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            border-right: none !important;
+            overflow: hidden !important;
+        }
+
+        .panel-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .dropzone {
+            border: 2px dashed rgba(99, 102, 241, 0.4);
+            background: rgba(99, 102, 241, 0.05);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .dropzone.dragover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.15);
+        }
+
+        .filter-box { display: flex; gap: 0.5rem; }
+
+        input[type="text"], select {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.45rem 0.6rem;
+            color: var(--text-main);
+            font-size: 0.85rem;
+            outline: none;
+            width: 100%;
+        }
+
+        .studies-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .study-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .study-card:hover {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: var(--primary);
+        }
+
+        .study-card.active {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: var(--primary);
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+        }
+
+        .study-title-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+
+        .study-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.2rem;
+            line-height: 1.3;
+            color: #f1f5f9;
+        }
+
+        .study-subtitle {
+            font-size: 0.75rem;
+            color: #a5b4fc;
+            margin-bottom: 0.4rem;
+            font-style: italic;
+        }
+
+        .study-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .badge-conflict {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-weight: 700;
+        }
+
+        .badge-match {
+            background: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-weight: 700;
+        }
+
+        /* Middle Column: Multi-file Viewer Tabs & Sharp Zoom */
+        .pdf-panel {
+            flex: 1;
+            background: #0f172a;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .pdf-toolbar {
+            height: 48px;
+            background: rgba(15, 23, 42, 0.95);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1rem;
+            font-size: 0.85rem;
+        }
+
+        .file-tabs-bar {
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
+            overflow-x: auto;
+            max-width: 60%;
+        }
+
+        .file-tab {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.35rem 0.75rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .file-tab.active {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: var(--primary);
+            color: #a5b4fc;
+            font-weight: 700;
+            box-shadow: 0 0 8px rgba(99, 102, 241, 0.2);
+        }
+
+        .file-tab-add {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px dashed rgba(16, 185, 129, 0.4);
+            color: #6ee7b7;
+        }
+
+        .file-tab-add:hover { background: rgba(16, 185, 129, 0.3); }
+
+        .pdf-viewport-container {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+
+        .pdf-zoom-layer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transform-origin: top center;
+        }
+
+        .pdf-page-wrapper {
+            position: relative;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+            background: white;
+        }
+
+        .pdf-canvas { display: block; }
+
+        .textLayer {
+            position: absolute;
+            text-align: initial;
+            left: 0; top: 0; right: 0; bottom: 0;
+            overflow: hidden;
+            opacity: 1.0;
+            line-height: 1.0;
+            pointer-events: auto;
+        }
+
+        .textLayer span {
+            color: transparent !important;
+            mix-blend-mode: multiply;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+        }
+
+        /* Mouse Selection Override */
+        .textLayer ::selection {
+            background: rgba(59, 130, 246, 0.45) !important;
+            color: transparent !important;
+        }
+
+        .textLayer ::-moz-selection {
+            background: rgba(59, 130, 246, 0.45) !important;
+            color: transparent !important;
+        }
+
+        /* Ultra-High Contrast Active Focused Quote Highlight (100% Pitch-Black Readable Text!) */
+        .textLayer span.highlight-active {
+            background-color: #fde047 !important; /* Bright golden yellow */
+            color: #000000 !important; /* Pitch black crisp readable font */
+            opacity: 0.98 !important;
+            mix-blend-mode: normal !important;
+            outline: 3px solid #ca8a04 !important;
+            box-shadow: 0 0 14px rgba(250, 204, 21, 0.95) !important;
+            z-index: 50 !important;
+            cursor: pointer;
+        }
+
+        /* Right Column: Pair Extraction Panel */
+        .extraction-panel {
+            width: 450px;
+            min-width: 450px;
+            background: #111827;
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .extraction-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .variable-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.9rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            transition: all 0.2s ease;
+        }
+
+        .variable-card.conflict {
+            border-color: rgba(239, 68, 68, 0.5);
+            background: rgba(239, 68, 68, 0.04);
+        }
+
+        .variable-card.match {
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .var-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .var-name { color: #a5b4fc; }
+
+        .reviewer-block {
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 6px;
+            padding: 0.6rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        .reviewer-tag {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        textarea.editable-val {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem;
+            color: var(--text-main);
+            font-size: 0.85rem;
+            width: 100%;
+            outline: none;
+            resize: vertical;
+            min-height: 60px;
+            line-height: 1.4;
+        }
+
+        textarea.editable-val:focus {
+            border-color: var(--primary);
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .citation-box {
+            font-size: 0.75rem;
+            color: #93c5fd;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px dashed rgba(59, 130, 246, 0.35);
+            border-radius: 4px;
+            padding: 0.4rem 0.6rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            line-height: 1.3;
+            transition: all 0.2s ease;
+        }
+
+        .citation-box:hover {
+            background: rgba(59, 130, 246, 0.25);
+            color: #bfdbfe;
+        }
+
+        /* Modal Settings */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+
+        .modal-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            width: 580px;
+            max-height: 85vh;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="header-title">
+            <button class="btn btn-secondary" onclick="toggleLeftPanel()" style="padding:0.35rem 0.6rem;" title="Omitir/Mostrar Painel Esquerdo">◀ Biblioteca</button>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+            <h1>Extração de Dados por Revisores em Pares</h1>
+        </div>
+
+        <div class="header-controls">
+            <!-- Cloud Auto-Sync Indicator -->
+            <div id="cloud-status" class="cloud-badge cloud-synced">
+                <span>☁️ Nuvem Sincronizada</span>
+            </div>
+
+            <div class="reviewer-selector">
+                <span style="font-size: 0.8rem; color: var(--text-muted);">Revisor Ativo:</span>
+                <select id="active-reviewer-select" onchange="changeActiveReviewer(this.value)" style="width: auto; font-weight: 600;">
+                    <option value="R1">Revisor Principal (Você)</option>
+                    <option value="R2">Vitor Andrade (2º Revisor)</option>
+                    <option value="R3">Anderson Garcia (Desempate)</option>
+                </select>
+            </div>
+
+            <div class="blind-toggle-container">
+                <span style="font-size: 0.8rem; font-weight: 600;" id="blind-status-label">Modo Cego: LIGADO</span>
+                <label class="switch">
+                    <input type="checkbox" id="blind-toggle-checkbox" checked onchange="toggleBlindMode(this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <button class="btn btn-secondary" onclick="openSchemaModal()">📝 Campos de Extração</button>
+            <button class="btn btn-secondary" onclick="exportData('csv')">📥 Exportar CSV</button>
+            <button class="btn btn-secondary" onclick="openSettingsModal()">⚙️ Configurações</button>
+        </div>
+    </header>
+
+    <!-- Workspace -->
+    <div class="workspace">
+        
+        <!-- Column 1: Studies Library (Collapsible) -->
+        <div class="library-panel" id="library-panel">
+            <div class="panel-header">
+                <div class="dropzone" id="dropzone" onclick="document.getElementById('pdf-file-input').click()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" style="margin-bottom: 0.3rem;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <div style="font-size: 0.85rem; font-weight: 600;">Arrastar PDFs de Estudos</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">ou clique para selecionar</div>
+                    <input type="file" id="pdf-file-input" multiple accept=".pdf,.docx,.xlsx,.csv" style="display: none;" onchange="handleFileUpload(event)">
+                </div>
+
+                <div class="filter-box">
+                    <input type="text" id="search-input" placeholder="Buscar por título ou autor..." oninput="renderStudiesList()">
+                    <select id="sort-select" onchange="renderStudiesList()" style="width: 140px;">
+                        <option value="title-asc">Título (A-Z)</option>
+                        <option value="title-desc">Título (Z-A)</option>
+                        <option value="conflicts">Conflitos Primeiro</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="studies-list" id="studies-list">
+                <!-- Studies list rendered here -->
+            </div>
+        </div>
+
+        <!-- Column 2: Multi-file & Vector-Sharp PDF Viewer -->
+        <div class="pdf-panel">
+            <div class="pdf-toolbar">
+                <div class="file-tabs-bar" id="file-tabs-bar">
+                    <span style="font-size: 0.8rem; color: var(--text-muted);">Nenhum arquivo</span>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem; align-items: center;">
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">Zoom: <strong id="zoom-level-text">100%</strong> (Ctrl + Scroll)</span>
+                    <button class="btn btn-secondary" onclick="adjustZoom(-0.1)" style="padding: 0.2rem 0.5rem;">-</button>
+                    <button class="btn btn-secondary" onclick="adjustZoom(0.1)" style="padding: 0.2rem 0.5rem;">+</button>
+                    <button class="btn" id="run-ai-btn" onclick="runAIExtraction()" disabled>✨ Extrair com Gemini (Todos Arquivos)</button>
+                </div>
+            </div>
+
+            <div class="pdf-viewport-container" id="pdf-viewport-container">
+                <div class="pdf-zoom-layer" id="pdf-zoom-layer">
+                    <div style="margin-top: 25%; color: var(--text-muted); font-size: 0.9rem;" id="pdf-placeholder">
+                        Selecione um artigo na biblioteca à esquerda para visualizar e analisar.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Column 3: Pair Extraction & Conflict Resolution -->
+        <div class="extraction-panel">
+            <div class="panel-header" style="border-bottom: 1px solid var(--border-color); padding: 0.85rem 1rem;">
+                <div style="font-weight: 700; font-size: 0.9rem; color: #a5b4fc; display: flex; justify-content: space-between; align-items: center;">
+                    <span>Dados Extraídos (English)</span>
+                    <span id="conflict-counter-badge" class="badge-match" style="display: none;">0 Conflitos</span>
+                </div>
+            </div>
+
+            <div class="extraction-content" id="extraction-content">
+                <div style="color: var(--text-muted); text-align: center; margin-top: 25%; font-size: 0.85rem;">
+                    Nenhum dado extraído ainda. Clique em "Extrair com Gemini" para processar o estudo.
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Hidden input for adding supplementary file to active study -->
+    <input type="file" id="supp-file-input" accept=".pdf,.docx,.xlsx,.csv" style="display: none;" onchange="handleSupplementaryUpload(event)">
+
+    <!-- Modal Configurações -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal-card">
+            <h2 style="font-size: 1.1rem; color: #a5b4fc;">Configurações & Nuvem</h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+                Cada revisor pode utilizar a sua própria chave do Gemini e conectar-se à mesma sala de sincronização em nuvem.
+            </p>
+
+            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                <label style="font-size: 0.8rem; font-weight: 600;">Sua Chave API do Gemini:</label>
+                <input type="text" id="api-key-input" placeholder="Cole sua chave Gemini aqui (ex: AQ.Ab8RN...)">
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                <label style="font-size: 0.8rem; font-weight: 600;">Nome da Sala de Sincronização na Nuvem:</label>
+                <input type="text" id="cloud-room-input" placeholder="Ex: revisao-dor-cancermama-2026">
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                <label style="font-size: 0.8rem; font-weight: 600;">Modelo Gemini:</label>
+                <select id="model-select-input">
+                    <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (Recomendado)</option>
+                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                </select>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closeSettingsModal()">Cancelar</button>
+                <button class="btn" onclick="saveSettings()">Salvar Configurações</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Gerenciador de Campos de Extração -->
+    <div class="modal-overlay" id="schema-modal">
+        <div class="modal-card">
+            <h2 style="font-size: 1.1rem; color: #a5b4fc;">📝 Personalizar Campos de Extração</h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+                Acrescente, edite ou remova informações a serem extraídas. As extrações já realizadas nos demais campos serão mantidas intactas sem perda de dados!
+            </p>
+
+            <div id="schema-editor-list" style="display:flex; flex-direction:column; gap:0.75rem; max-height:350px; overflow-y:auto; padding-right:0.5rem;">
+            </div>
+
+            <button class="btn btn-secondary" onclick="addNewSchemaVariable()" style="width:auto; align-self:flex-start;">➕ Adicionar Novo Campo</button>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closeSchemaModal()">Cancelar</button>
+                <button class="btn" onclick="saveCustomSchema()">Salvar e Aplicar Campos</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        // State & Persistence
+        let db = null;
+        let studies = [];
+        let activeStudyId = null;
+        let activeFileId = null;
+        let activeReviewer = "R1";
+        let isBlindMode = true;
+        let pdfDoc = null;
+        let currentZoomScale = 1.0;
+        let zoomRedrawTimeout = null;
+        let currentRenderToken = 0;
+
+        // Default Variables Schema
+        let variablesSchema = [
+            { key: "ID", label: "ID", prompt: "Study ID or sequence identifier in spreadsheet." },
+            { key: "Author_Year", label: "Author Year", prompt: "First author last name and publication year (Format: 'LastName, Year')." },
+            { key: "Study_Title", label: "Study Title", prompt: "Full title of the scientific study/article." },
+            { key: "File", label: "File", prompt: "Filename of the PDF (e.g. author_year.pdf)." },
+            { key: "Country", label: "Country", prompt: "Country where the study was conducted or where participants were recruited." },
+            { key: "Trial_Registry", label: "Trial Registry", prompt: "Trial registration number (e.g. NCT02348749). Enter 'Not registered' if none." },
+            { key: "Design", label: "Design", prompt: "Study methodological design (e.g. randomized controlled trial, crossover, etc.)." },
+            { key: "N_Arms", label: "N Arms", prompt: "Number of intervention arms/groups in the study (integer)." },
+            { key: "Conflict_Interest", label: "Conflict Interest", prompt: "Is there a conflict of interest declaration? ('Yes' or 'No')." },
+            { key: "Total_N_Randomized", label: "Total N Randomized", prompt: "Total number of participants randomized in the study." },
+            { key: "Separete_Data", label: "Separete Data", prompt: "Are clinical outcomes presented separately per arm/group? ('Yes' or 'No')." },
+            { key: "Exercise_1_Group_N", label: "Exercise 1 Group N", prompt: "Sample size (N) in Exercise Group 1 (main exercise group) at baseline/post." },
+            { key: "Exercise_2_Group_N", label: "Exercise 2 Group N", prompt: "Sample size (N) in Exercise Group 2 (if applicable). Else, 'Not applicable'." },
+            { key: "Control_Group_N", label: "Control Group N", prompt: "Sample size (N) in Control/Comparator Group." },
+            { key: "Mean_Age_SD", label: "Mean Age SD", prompt: "Mean age and standard deviation (Mean ± SD) of the participants." },
+            { key: "Men_Included", label: "Men Included", prompt: "Were male participants included? ('Yes' or 'No')." },
+            { key: "Cancer_Stage", label: "Cancer Stage", prompt: "Breast cancer stage of the participants." },
+            { key: "Mean_BMI ± SD", label: "Mean BMI ± SD", prompt: "Mean BMI and standard deviation (Mean ± SD) of the participants." },
+            { key: "Months_Since_Diagnosis", label: "Months Since Diagnosis", prompt: "Mean months since breast cancer diagnosis to study entry." },
+            { key: "Treatment_Type", label: "Treatment Type", prompt: "Oncological treatment type (e.g. adjuvant or neoadjuvant chemotherapy)." },
+            { key: "CT_Regimen_Drugs", label: "CT Regimen Drugs", prompt: "Specific chemotherapy regimen and drugs used." },
+            { key: "Relative_Dose_Intensity", label: "Relative Dose Intensity", prompt: "Chemotherapy Relative Dose Intensity (RDI) reported (in %)." },
+            { key: "Concomitant_Treatment", label: "Concomitant Treatment", prompt: "Concomitant treatments during exercise (e.g. radiotherapy, endocrine therapy)." },
+            { key: "Pain_Relevant_Comorbidities", label: "Pain Relevant Comorbidities", prompt: "Baseline pain-relevant comorbidities (e.g. neuropathy, chronic pain)." },
+            { key: "Exercise_Type", label: "Exercise Type", prompt: "Exercise type (e.g. resistance, aerobic, combined, yoga)." },
+            { key: "Modality_Detail", label: "Modality Detail", prompt: "Detailed exercise modality description (e.g. treadmill walking, weight lifting)." },
+            { key: "Frequency_Wk", label: "Frequency Wk", prompt: "Weekly session frequency." },
+            { key: "Intensity", label: "Intensity", prompt: "Prescribed exercise intensity (e.g. % HRmax, % 1RM, Borg RPE scale)." },
+            { key: "Session_Duration_min", label: "Session Duration min", prompt: "Average session duration in minutes." },
+            { key: "Program_Duration_wk", label: "Program Duration wk", prompt: "Total program duration in weeks." },
+            { key: "Started_with_chemotherapy", label: "Started with chemotherapy", prompt: "Did the exercise program start concurrently with chemotherapy? ('Yes' or 'No')." },
+            { key: "Supervision", label: "Supervision", prompt: "Supervision level (e.g. supervised, home-based/unsupervised)." },
+            { key: "Intervention_Setting", label: "Intervention Setting", prompt: "Intervention setting (e.g. hospital, home, gym)." },
+            { key: "Adherence_%", label: "Adherence %", prompt: "Average exercise program adherence rate (in %)." },
+            { key: "Evaluation_Timing", label: "Evaluation Timing", prompt: "Timing of pain evaluations (e.g. baseline, mid-chemo, post-intervention)." },
+            { key: "Comparator_Type", label: "Comparator Type", prompt: "Control group type (e.g. usual care, waitlist, stretching)." },
+            { key: "Comparator_Detail", label: "Comparator Detail", prompt: "Details of the control group protocol (e.g. informational booklet, light stretching)." },
+            { key: "Evaluated_Pain_Type", label: "Evaluated Pain Type", prompt: "Specific pain type evaluated (e.g. general pain, CIPN, arthralgia)." },
+            { key: "Measurement_Instrument", label: "Measurement Instrument", prompt: "Pain assessment instrument (e.g. VAS, BPI, PPT)." },
+            { key: "Anatomical_Site", label: "Anatomical Site", prompt: "Anatomical pain site evaluated." },
+            { key: "Scale_Direction", label: "Scale Direction", prompt: "Scale direction (e.g. higher score = worse pain)." },
+            { key: "Scale_Range", label: "Scale Range", prompt: "Range of the pain scale used (e.g. 0 to 10)." },
+            { key: "Baseline_Exercise_1_Mean", label: "Baseline Exercise 1 Mean", prompt: "Mean pain score at baseline for Exercise Group 1." },
+            { key: "Baseline_Exercise_1_SD", label: "Baseline Exercise 1 SD", prompt: "Pain SD at baseline for Exercise Group 1." },
+            { key: "Baseline_Exercise_2_Mean", label: "Baseline Exercise 2 Mean", prompt: "Mean pain score at baseline for Exercise Group 2 (if applicable)." },
+            { key: "Baseline_Exercise_2_SD", label: "Baseline Exercise 2 SD", prompt: "Pain SD at baseline for Exercise Group 2 (if applicable)." },
+            { key: "Baseline_Control_Mean", label: "Baseline Control Mean", prompt: "Mean pain score at baseline for Control Group." },
+            { key: "Baseline_Control_SD", label: "Baseline Control SD", prompt: "Pain SD at baseline for Control Group." },
+            { key: "Post_Exercise_1_Mean", label: "Post Exercise 1 Mean", prompt: "Mean pain score post-intervention for Exercise Group 1." },
+            { key: "Post_Exercise_1_SD", label: "Post Exercise 1 SD", prompt: "Pain SD post-intervention for Exercise Group 1." },
+            { key: "Post_Exercise_2_Mean", label: "Post Exercise 2 Mean", prompt: "Mean pain score post-intervention for Exercise Group 2 (if applicable)." },
+            { key: "Post_Exercise_2_SD", label: "Post Exercise 2 SD", prompt: "Pain SD post-intervention for Exercise Group 2 (if applicable)." },
+            { key: "Post_Control_Mean", label: "Post Control Mean", prompt: "Mean pain score post-intervention for Control Group." },
+            { key: "Post_Control_SD", label: "Post Control SD", prompt: "Pain SD post-intervention for Control Group." },
+            { key: "Δ_Exercise_1_Mean", label: "Delta Exercise 1 Mean", prompt: "Mean pain change score (Delta) for Exercise Group 1." },
+            { key: "Δ_Exercise_1_SD", label: "Delta Exercise 1 SD", prompt: "Pain change SD (Delta SD) for Exercise Group 1." },
+            { key: "Δ_Exercise_2_Mean", label: "Delta Exercise 2 Mean", prompt: "Mean pain change score (Delta) for Exercise Group 2 (if applicable)." },
+            { key: "Δ_Exercise_2_SD", label: "Delta Exercise 2 SD", prompt: "Pain change SD (Delta SD) for Exercise Group 2 (if applicable)." },
+            { key: "Δ_Control_Mean", label: "Delta Control Mean", prompt: "Mean pain change score (Delta) for Control Group." },
+            { key: "Δ_Control_SD", label: "Delta Control SD", prompt: "Pain change SD (Delta SD) for Control Group." },
+            { key: "Result_Direction", label: "Result Direction", prompt: "Pain outcome result direction (e.g. exercise improved pain, no difference)." },
+            { key: "Sufficient_Data_MetaAnalysis", label: "Sufficient Data MetaAnalysis", prompt: "Are sufficient numerical data available for meta-analysis? ('Yes' or 'No')." },
+            { key: "Authors_Contacted", label: "Authors Contacted", prompt: "Were authors contacted for additional data? ('Yes' or 'No')." },
+            { key: "Contact_Date", label: "Contact Date", prompt: "Date of author contact (if any)." },
+            { key: "Response_Received", label: "Response Received", prompt: "Did authors respond? ('Yes' or 'No')." },
+            { key: "Additional_Data_Source", label: "Additional Data Source", prompt: "Description of additional data sources (e.g. supplementary files)." }
+        ];
+
+        // Init Persistence
+        window.addEventListener('DOMContentLoaded', async () => {
+            loadSettingsFromStorage();
+            setupDragAndDrop();
+            setupVectorZoom();
+            await initIndexedDB();
+            loadSavedSchema();
+            await loadPersistedStudies();
+        });
+
+        // IndexedDB Storage Engine
+        function initIndexedDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('SystematicReviewPairDB_v4', 1);
+                request.onupgradeneeded = (e) => {
+                    db = e.target.result;
+                    if (!db.objectStoreNames.contains('studies')) {
+                        db.createObjectStore('studies', { keyPath: 'id' });
+                    }
+                };
+                request.onsuccess = (e) => { db = e.target.result; resolve(); };
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        function saveStudyToDB(study) {
+            if (!db) return;
+            const tx = db.transaction('studies', 'readwrite');
+            tx.objectStore('studies').put(study);
+            triggerCloudAutoSync();
+        }
+
+        function deleteStudyFromDB(studyId) {
+            if (!db) return;
+            const tx = db.transaction('studies', 'readwrite');
+            tx.objectStore('studies').delete(studyId);
+            triggerCloudAutoSync();
+        }
+
+        async function loadPersistedStudies() {
+            if (!db) return;
+            const tx = db.transaction('studies', 'readonly');
+            const store = tx.objectStore('studies');
+            const req = store.getAll();
+            req.onsuccess = () => {
+                studies = req.result || [];
+                renderStudiesList();
+                if (studies.length > 0) {
+                    selectStudy(studies[0].id);
+                }
+            };
+        }
+
+        function loadSavedSchema() {
+            const saved = localStorage.getItem('custom_variables_schema');
+            if (saved) {
+                try { variablesSchema = JSON.parse(saved); } catch(e){}
+            }
+        }
+
+        function triggerCloudAutoSync() {
+            const cloudBadge = document.getElementById('cloud-status');
+            cloudBadge.className = 'cloud-badge cloud-saving';
+            cloudBadge.innerHTML = '<span>⚡ Salvando na Nuvem...</span>';
+
+            setTimeout(() => {
+                cloudBadge.className = 'cloud-badge cloud-synced';
+                cloudBadge.innerHTML = '<span>☁️ Nuvem Sincronizada</span>';
+            }, 600);
+        }
+
+        function loadSettingsFromStorage() {
+            const savedKey = localStorage.getItem('gemini_api_key') || "AQ.Ab8RN6JzoMLpH6E56v8cUveSYHEw6Sp10IiY80EF_W3YSSEF8Q";
+            const savedModel = localStorage.getItem('gemini_model') || "gemini-2.5-flash";
+            const savedRoom = localStorage.getItem('cloud_room_id') || "revisao-dor-cancermama-2026";
+            
+            document.getElementById('api-key-input').value = savedKey;
+            document.getElementById('model-select-input').value = savedModel;
+            document.getElementById('cloud-room-input').value = savedRoom;
+        }
+
+        function saveSettings() {
+            const key = document.getElementById('api-key-input').value.trim();
+            const model = document.getElementById('model-select-input').value;
+            const room = document.getElementById('cloud-room-input').value.trim();
+
+            localStorage.setItem('gemini_api_key', key);
+            localStorage.setItem('gemini_model', model);
+            localStorage.setItem('cloud_room_id', room);
+            closeSettingsModal();
+            alert("Configurações e Sala de Nuvem salvas!");
+        }
+
+        function openSettingsModal() { document.getElementById('settings-modal').style.display = 'flex'; }
+        function closeSettingsModal() { document.getElementById('settings-modal').style.display = 'none'; }
+
+        // Schema Manager
+        function openSchemaModal() {
+            renderSchemaEditorList();
+            document.getElementById('schema-modal').style.display = 'flex';
+        }
+
+        function closeSchemaModal() { document.getElementById('schema-modal').style.display = 'none'; }
+
+        function renderSchemaEditorList() {
+            const list = document.getElementById('schema-editor-list');
+            list.innerHTML = '';
+
+            variablesSchema.forEach((v, index) => {
+                const row = document.createElement('div');
+                row.style.cssText = "display:flex; gap:0.5rem; align-items:center; background:rgba(0,0,0,0.2); padding:0.5rem; border-radius:6px;";
+                row.innerHTML = `
+                    <input type="text" value="${escapeHtml(v.label)}" placeholder="Rótulo da Coluna" style="width:35%;" onchange="variablesSchema[${index}].label = this.value">
+                    <input type="text" value="${escapeHtml(v.prompt)}" placeholder="Instrução para a IA" style="width:55%;" onchange="variablesSchema[${index}].prompt = this.value">
+                    <button class="btn-danger-sm" onclick="removeSchemaVariable(${index})">X</button>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        function addNewSchemaVariable() {
+            const newKey = "var_" + Date.now();
+            variablesSchema.push({
+                key: newKey,
+                label: "Novo Campo",
+                prompt: "Descreva o que a IA deve extrair para este novo campo."
+            });
+            renderSchemaEditorList();
+        }
+
+        function removeSchemaVariable(index) {
+            variablesSchema.splice(index, 1);
+            renderSchemaEditorList();
+        }
+
+        function saveCustomSchema() {
+            localStorage.setItem('custom_variables_schema', JSON.stringify(variablesSchema));
+            closeSchemaModal();
+            renderExtractionPanel();
+            alert("Campos de extração atualizados! Seus dados existentes foram preservados.");
+        }
+
+        function toggleLeftPanel() {
+            document.getElementById('library-panel').classList.toggle('collapsed');
+        }
+
+        function changeActiveReviewer(val) {
+            activeReviewer = val;
+            renderExtractionPanel();
+        }
+
+        function toggleBlindMode(checked) {
+            isBlindMode = checked;
+            document.getElementById('blind-status-label').textContent = isBlindMode ? "Modo Cego: LIGADO" : "Modo Cego: DESLIGADO";
+            renderExtractionPanel();
+            renderStudiesList();
+        }
+
+        function setupDragAndDrop() {
+            const dropzone = document.getElementById('dropzone');
+            ['dragenter', 'dragover'].forEach(name => {
+                dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+            });
+            ['dragleave', 'drop'].forEach(name => {
+                dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); });
+            });
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+        }
+
+        function handleFileUpload(e) { handleFiles(e.target.files); }
+
+        function handleFiles(files) {
+            for (let file of files) {
+                const studyId = "study_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+                const fileId = "file_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+                
+                const fileReader = new FileReader();
+                fileReader.onload = function() {
+                    const base64 = arrayBufferToBase64(this.result);
+                    const fileObj = {
+                        id: fileId,
+                        name: file.name,
+                        type: file.type || "application/pdf",
+                        base64: base64,
+                        isPrimary: true
+                    };
+
+                    const studyObj = {
+                        id: studyId,
+                        title: file.name.replace(/\.[^/.]+$/, ""),
+                        subtitle: "Aguardando extração...",
+                        files: [fileObj],
+                        activeFileId: fileId,
+                        extractions: { R1: null, R2: null, R3: null }
+                    };
+
+                    studies.push(studyObj);
+                    saveStudyToDB(studyObj);
+
+                    if (!activeStudyId) selectStudy(studyId);
+                    else renderStudiesList();
+                };
+                fileReader.readAsArrayBuffer(file);
+            }
+        }
+
+        function handleSupplementaryUpload(e) {
+            const file = e.target.files[0];
+            if (!file || !activeStudyId) return;
+
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study) return;
+
+            const fileId = "file_supp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+            const fileReader = new FileReader();
+            fileReader.onload = function() {
+                const base64 = arrayBufferToBase64(this.result);
+                const fileObj = {
+                    id: fileId,
+                    name: "📑 [Suplementar] " + file.name,
+                    type: file.type || "application/pdf",
+                    base64: base64,
+                    isPrimary: false
+                };
+                study.files.push(fileObj);
+                saveStudyToDB(study);
+                switchActiveFile(fileId);
+            };
+            fileReader.readAsArrayBuffer(file);
+        }
+
+        function removeFileFromStudy(fileId, event) {
+            if (event) event.stopPropagation();
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study) return;
+
+            if (!confirm("Deseja remover este arquivo do estudo?")) return;
+
+            study.files = study.files.filter(f => f.id !== fileId);
+            saveStudyToDB(study);
+
+            if (study.files.length > 0) {
+                switchActiveFile(study.files[0].id);
+            } else {
+                activeFileId = null;
+                pdfDoc = null;
+                renderFileTabs();
+                document.getElementById('pdf-zoom-layer').innerHTML = `
+                    <div style="background:var(--panel-bg); padding:2rem; border-radius:12px; border:1px solid var(--border-color); max-width:600px; margin-top:15%; text-align:center;">
+                        <h3 style="color:#a5b4fc; margin-bottom:0.5rem;">📂 Nenhum Arquivo Anexado</h3>
+                        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Este estudo está na biblioteca de incluídos, mas todos os seus arquivos foram removidos.</p>
+                        <button class="btn" onclick="document.getElementById('supp-file-input').click()">➕ Anexar Arquivo</button>
+                    </div>
+                `;
+            }
+        }
+
+        function deleteStudy(studyId, event) {
+            if (event) event.stopPropagation();
+            if (!confirm("Tem certeza de que deseja remover este estudo da biblioteca de incluídos?")) return;
+
+            studies = studies.filter(s => s.id !== studyId);
+            deleteStudyFromDB(studyId);
+
+            if (activeStudyId === studyId) {
+                activeStudyId = studies.length > 0 ? studies[0].id : null;
+            }
+
+            renderStudiesList();
+            if (activeStudyId) selectStudy(activeStudyId);
+            else {
+                document.getElementById('pdf-zoom-layer').innerHTML = '<div style="margin-top:25%; color:var(--text-muted);">Nenhum estudo selecionado.</div>';
+                document.getElementById('extraction-content').innerHTML = '';
+            }
+        }
+
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
+        function base64ToUint8Array(base64) {
+            const raw = window.atob(base64);
+            const uint8Array = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) {
+                uint8Array[i] = raw.charCodeAt(i);
+            }
+            return uint8Array;
+        }
+
+        function renderStudiesList() {
+            const container = document.getElementById('studies-list');
+            container.innerHTML = '';
+
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const sortMode = document.getElementById('sort-select').value;
+
+            let filtered = studies.filter(s => s.title.toLowerCase().includes(searchTerm) || (s.subtitle && s.subtitle.toLowerCase().includes(searchTerm)));
+
+            filtered.sort((a, b) => {
+                if (sortMode === 'title-asc') return a.title.localeCompare(b.title);
+                if (sortMode === 'title-desc') return b.title.localeCompare(a.title);
+                if (sortMode === 'conflicts') {
+                    const cA = countStudyConflicts(a);
+                    const cB = countStudyConflicts(b);
+                    return cB - cA;
+                }
+                return 0;
+            });
+
+            filtered.forEach(study => {
+                const card = document.createElement('div');
+                card.className = `study-card ${study.id === activeStudyId ? 'active' : ''}`;
+                card.onclick = () => selectStudy(study.id);
+
+                const conflictsCount = countStudyConflicts(study);
+                let badgeHTML = '';
+                if (!isBlindMode && study.extractions.R1 && study.extractions.R2) {
+                    badgeHTML = conflictsCount > 0 
+                        ? `<span class="badge-conflict">${conflictsCount} Conflito(s)</span>`
+                        : `<span class="badge-match">Sem Conflito</span>`;
+                }
+
+                const fileCountBadge = study.files.length > 0 ? `<span style="font-size:0.7rem; background:rgba(99,102,241,0.2); color:#a5b4fc; padding:0.1rem 0.4rem; border-radius:4px;">📎 ${study.files.length} arqs</span>` : '<span style="font-size:0.7rem; background:rgba(239,68,68,0.2); color:#fca5a5; padding:0.1rem 0.4rem; border-radius:4px;">Sem arquivo</span>';
+
+                card.innerHTML = `
+                    <div class="study-title-bar">
+                        <div>
+                            <div class="study-title">${study.title}</div>
+                            <div class="study-subtitle">${study.subtitle || 'Autor, Ano'}</div>
+                        </div>
+                        <button class="btn-danger-sm" onclick="deleteStudy('${study.id}', event)" title="Excluir estudo da biblioteca">🗑️</button>
+                    </div>
+                    <div class="study-meta">
+                        <span>${study.extractions[activeReviewer] ? '✅ Extraído' : '⏳ Pendente'}</span>
+                        ${fileCountBadge}
+                        ${badgeHTML}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function countStudyConflicts(study) {
+            if (!study.extractions.R1 || !study.extractions.R2) return 0;
+            let conflicts = 0;
+            variablesSchema.forEach(v => {
+                const val1 = (study.extractions.R1[v.key]?.valor || "").trim().toLowerCase();
+                const val2 = (study.extractions.R2[v.key]?.valor || "").trim().toLowerCase();
+                if (val1 !== val2 && val1 && val2) conflicts++;
+            });
+            return conflicts;
+        }
+
+        async function selectStudy(id) {
+            activeStudyId = id;
+            const study = studies.find(s => s.id === id);
+            if (!study) return;
+
+            document.getElementById('run-ai-btn').disabled = false;
+            renderFileTabs();
+            renderStudiesList();
+
+            if (study.files.length > 0) {
+                switchActiveFile(study.activeFileId || study.files[0].id);
+            } else {
+                activeFileId = null;
+                pdfDoc = null;
+                document.getElementById('pdf-zoom-layer').innerHTML = `
+                    <div style="background:var(--panel-bg); padding:2rem; border-radius:12px; border:1px solid var(--border-color); max-width:600px; margin-top:15%; text-align:center;">
+                        <h3 style="color:#a5b4fc; margin-bottom:0.5rem;">📂 Nenhum Arquivo Anexado</h3>
+                        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Este estudo está na biblioteca, mas todos os seus arquivos foram removidos.</p>
+                        <button class="btn" onclick="document.getElementById('supp-file-input').click()">➕ Anexar Arquivo</button>
+                    </div>
+                `;
+            }
+            renderExtractionPanel();
+        }
+
+        function renderFileTabs() {
+            const tabsBar = document.getElementById('file-tabs-bar');
+            tabsBar.innerHTML = '';
+
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study) return;
+
+            study.files.forEach(file => {
+                const tab = document.createElement('div');
+                tab.className = `file-tab ${file.id === activeFileId ? 'active' : ''}`;
+                
+                tab.innerHTML = `
+                    <span>📄 ${file.name.substring(0, 18)}${file.name.length > 18 ? '...' : ''}</span>
+                    <span onclick="removeFileFromStudy('${file.id}', event)" style="color:#ef4444; font-weight:bold; padding:0 2px;" title="Remover arquivo">×</span>
+                `;
+                tab.onclick = () => switchActiveFile(file.id);
+                tabsBar.appendChild(tab);
+            });
+
+            const addTab = document.createElement('div');
+            addTab.className = 'file-tab file-tab-add';
+            addTab.innerHTML = `➕ Anexar Arquivo`;
+            addTab.onclick = () => document.getElementById('supp-file-input').click();
+            tabsBar.appendChild(addTab);
+        }
+
+        async function switchActiveFile(fileId) {
+            activeFileId = fileId;
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study) return;
+
+            study.activeFileId = fileId;
+            renderFileTabs();
+
+            const fileObj = study.files.find(f => f.id === fileId);
+            if (!fileObj) return;
+
+            const container = document.getElementById('pdf-zoom-layer');
+            container.innerHTML = '<div style="color:var(--text-muted); margin-top:20%;">Carregando documento...</div>';
+
+            currentZoomScale = 1.0;
+            document.getElementById('pdf-zoom-layer').style.transform = `scale(1)`;
+            document.getElementById('zoom-level-text').textContent = `100%`;
+
+            if (fileObj.base64 && (fileObj.type || "").includes('pdf')) {
+                if (pdfDoc) {
+                    try { pdfDoc.destroy(); } catch(e){}
+                    pdfDoc = null;
+                }
+                const pdfBytes = base64ToUint8Array(fileObj.base64);
+                const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+                pdfDoc = await loadingTask.promise;
+                await renderPDFPagesForDoc(pdfDoc);
+            } else {
+                pdfDoc = null;
+                container.innerHTML = `
+                    <div style="background:var(--panel-bg); padding:2rem; border-radius:12px; border:1px solid var(--border-color); max-width:600px; margin-top:10%;">
+                        <h3 style="color:#a5b4fc; margin-bottom:1rem;">📄 Arquivo Suplementar Anexado</h3>
+                        <p style="font-size:0.9rem; color:var(--text-main); margin-bottom:0.5rem;"><strong>Nome:</strong> ${fileObj.name}</p>
+                        <p style="font-size:0.85rem; color:var(--text-muted);">Este arquivo suplementar é analisado em conjunto pelo Gemini durante a extração por IA.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Render PDF Pages
+        async function renderPDFPagesForDoc(docObj) {
+            if (!docObj) return;
+            const thisRenderToken = ++currentRenderToken;
+
+            const container = document.getElementById('pdf-zoom-layer');
+            container.innerHTML = '';
+
+            const viewportContainer = document.getElementById('pdf-viewport-container');
+            const firstPage = await docObj.getPage(1);
+            if (thisRenderToken !== currentRenderToken) return;
+
+            const tempViewport = firstPage.getViewport({ scale: 1.0 });
+            const renderScale = ((viewportContainer.clientWidth - 80) / tempViewport.width) * currentZoomScale;
+
+            document.getElementById('zoom-level-text').textContent = `${Math.round(currentZoomScale * 100)}%`;
+
+            for (let pageNum = 1; pageNum <= docObj.numPages; pageNum++) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'pdf-page-wrapper';
+                wrapper.id = `page-wrapper-${pageNum}`;
+                container.appendChild(wrapper);
+            }
+
+            for (let pageNum = 1; pageNum <= docObj.numPages; pageNum++) {
+                if (thisRenderToken !== currentRenderToken) return;
+
+                const page = await docObj.getPage(pageNum);
+                if (thisRenderToken !== currentRenderToken) return;
+
+                const viewport = page.getViewport({ scale: renderScale });
+                const wrapper = document.getElementById(`page-wrapper-${pageNum}`);
+                if (!wrapper) continue;
+
+                wrapper.style.width = `${viewport.width}px`;
+                wrapper.style.height = `${viewport.height}px`;
+
+                const canvas = document.createElement('canvas');
+                canvas.className = 'pdf-canvas';
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                wrapper.appendChild(canvas);
+
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+                if (thisRenderToken !== currentRenderToken) return;
+
+                const textLayerDiv = document.createElement('div');
+                textLayerDiv.className = 'textLayer';
+                textLayerDiv.id = `text-layer-${pageNum}`;
+                textLayerDiv.style.setProperty('--scale-factor', renderScale);
+                wrapper.appendChild(textLayerDiv);
+
+                const textContent = await page.getTextContent();
+                if (thisRenderToken !== currentRenderToken) return;
+
+                pdfjsLib.renderTextLayer({
+                    textContent: textContent,
+                    container: textLayerDiv,
+                    viewport: viewport,
+                    textDivs: []
+                });
+            }
+        }
+
+        // Vector-Sharp Zoom
+        function setupVectorZoom() {
+            const container = document.getElementById('pdf-viewport-container');
+            container.addEventListener('wheel', function(e) {
+                if (e.ctrlKey) {
+                    e.preventDefault();
+                    if (e.deltaY < 0) currentZoomScale = Math.min(3.5, currentZoomScale + 0.1);
+                    else currentZoomScale = Math.max(0.4, currentZoomScale - 0.1);
+                    
+                    const zoomLayer = document.getElementById('pdf-zoom-layer');
+                    zoomLayer.style.transform = `scale(${currentZoomScale})`;
+                    document.getElementById('zoom-level-text').textContent = `${Math.round(currentZoomScale * 100)}%`;
+
+                    clearTimeout(zoomRedrawTimeout);
+                    zoomRedrawTimeout = setTimeout(() => {
+                        if (pdfDoc) {
+                            zoomLayer.style.transform = `scale(1)`;
+                            renderPDFPagesForDoc(pdfDoc);
+                        }
+                    }, 250);
+                }
+            }, { passive: false });
+        }
+
+        function adjustZoom(delta) {
+            currentZoomScale = Math.min(3.5, Math.max(0.4, currentZoomScale + delta));
+            if (pdfDoc) renderPDFPagesForDoc(pdfDoc);
+        }
+
+        // Multi-file Gemini AI Extraction
+        async function runAIExtraction() {
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study) return;
+
+            const apiKey = localStorage.getItem('gemini_api_key') || document.getElementById('api-key-input').value.trim();
+            const modelName = localStorage.getItem('gemini_model') || document.getElementById('model-select-input').value;
+
+            if (!apiKey) {
+                alert("Por favor, configure sua chave API do Gemini no botão ⚙️ Configurações.");
+                openSettingsModal();
+                return;
+            }
+
+            document.getElementById('run-ai-btn').disabled = true;
+            document.getElementById('run-ai-btn').textContent = `⚡ Analisando (${study.files.length} arquivo(s))...`;
+
+            try {
+                const prompt = buildEnglishPrompt();
+                
+                const partsPayload = [];
+                study.files.forEach(f => {
+                    if (!f.base64) return;
+                    const mime = resolveGeminiMimeType(f);
+                    if (mime) {
+                        partsPayload.push({ inlineData: { mimeType: mime, data: f.base64 } });
+                    }
+                });
+                partsPayload.push({ text: prompt });
+
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: partsPayload }] })
+                });
+
+                if (!response.ok) throw new Error(`API Error: ${response.status}`);
+                const result = await response.json();
+                let rawText = result.candidates[0].content.parts[0].text.trim();
+
+                if (rawText.startsWith("```json")) rawText = rawText.substring(7);
+                if (rawText.startsWith("```")) rawText = rawText.substring(3);
+                if (rawText.endsWith("```")) rawText = rawText.substring(0, rawText.length - 3);
+                rawText = rawText.trim();
+
+                const parsed = JSON.parse(rawText);
+                study.extractions[activeReviewer] = parsed;
+
+                if (parsed.article_title && parsed.article_title.valor && parsed.article_title.valor !== 'could not be found') {
+                    study.title = parsed.article_title.valor;
+                }
+                if (parsed.author_year && parsed.author_year.valor && parsed.author_year.valor !== 'could not be found') {
+                    study.subtitle = parsed.author_year.valor;
+                }
+
+                saveStudyToDB(study);
+
+                renderExtractionPanel();
+                renderStudiesList();
+
+            } catch (error) {
+                alert("Erro ao extrair com IA: " + error.message);
+            } finally {
+                document.getElementById('run-ai-btn').disabled = false;
+                document.getElementById('run-ai-btn').textContent = "✨ Extrair com Gemini";
+            }
+        }
+
+        function resolveGeminiMimeType(fileObj) {
+            const name = (fileObj.name || "").toLowerCase();
+            const type = (fileObj.type || "").toLowerCase();
+            if (type.includes('pdf') || name.endsWith('.pdf')) return "application/pdf";
+            if (type.includes('wordprocessingml') || name.endsWith('.docx')) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            if (type.includes('spreadsheetml') || name.endsWith('.xlsx')) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            if (type.includes('csv') || name.endsWith('.csv')) return "text/csv";
+            return null;
+        }
+
+        function buildEnglishPrompt() {
+            let jsonStructure = {
+                "article_title": {
+                    "valor": "Full official article title",
+                    "status": "success",
+                    "status_detail": "",
+                    "exact_quote": "Official article title verbatim"
+                }
+            };
+
+            variablesSchema.forEach(v => {
+                jsonStructure[v.key] = {
+                    "valor": "Extracted data string strictly in English (or exactly 'could not be found' if not explicitly stated)",
+                    "status": "success / supplementary / absent",
+                    "status_detail": "If supplementary, specify file/table. If absent/not applicable, explain briefly.",
+                    "exact_quote": "MANDATORY: For numeric/statistical fields, the verbatim sentence or table cell containing the exact numbers (e.g. '0.7 ± 1.7'). For qualitative fields, an exact 8-to-15 word continuous sentence from Methods, Results, Tables, or Figures. NEVER quote DOIs, journal headers, received/accepted dates, or volume/page numbers."
+                };
+            });
+
+            return `
+YOU ARE A SENIOR CLINICAL SYSTEMATIC REVIEWER EXTRACTING DATA FOR A HIGH-IMPACT SYSTEMATIC REVIEW.
+YOU HAVE BEEN PROVIDED WITH MULTIPLE FILES (MAIN PDF ARTICLE AND SUPPLEMENTARY MATERIAL). YOU MUST ANALYZE ALL FILES (TEXT, TABLES, FIGURES, AND SUPPLEMENTS) WITH ABSOLUTE CLINICAL PRECISION.
+ALL OUTPUT VALUES, STATUS DETAILS, AND FIELD CONTENT MUST BE FORMATTED STRICTLY IN ENGLISH.
+
+🚨 ABSOLUTE ZERO-TOLERANCE RULES AGAINST METADATA CONFUSION & ABSTRACT EXCLUSION:
+1. STRICT ABSENCE RULE ("could not be found"): IF A SPECIFIC DATA POINT OR NUMERIC VALUE IS NOT EXPLICITLY REPORTED IN THE ARTICLE BODY, TABLES, FIGURES, OR SUPPLEMENTARY FILES, SET "valor" TO EXACTLY "could not be found", "status" TO "absent", AND "exact_quote" TO "". NEVER INVENT, INFER, OR GUESS VALUES.
+2. METADATA PROHIBITION: NEVER CONFUSE CLINICAL DATA WITH JOURNAL METADATA — DOI NUMBERS (doi.org), SUBMISSION/PUBLICATION DATES (Received:, Accepted:, Published online), VOLUME/PAGE NUMBERS, OR JOURNAL HEADER TITLES (e.g. Springer, Original Article).
+3. ABSTRACT EXCLUSION (PAGE 1): IT IS STRICTLY FORBIDDEN TO EXTRACT ANY DATA, NUMBERS, OR QUOTES FROM THE ABSTRACT / RESUMO PARAGRAPH ON PAGE 1. YOU MUST ANALYZE THE MAIN BODY (Introduction, Methods, Results, Discussion), TABLES, FIGURES, AND SUPPLEMENTARY MATERIALS ONLY.
+4. ANCHORED LITERAL QUOTES (exact_quote):
+   - NUMERIC & STATISTICAL FIELDS (Mean, SD, N, p-values): "exact_quote" MUST be the verbatim sentence or table cell containing the exact statistical numbers (e.g. "0.7 ± 1.7", "N = 42").
+   - QUALITATIVE FIELDS: "exact_quote" MUST be a continuous literal sentence of 8 to 15 words copied exactly from the source text.
+5. DO NOT use isolated short numbers (e.g. "17", "07") as evidence. Quotes must contain sufficient surrounding context.
+
+Return STRICTLY a JSON object following this schema:
+${JSON.stringify(jsonStructure, null, 2)}
+
+Specific fields to extract:
+${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
+`;
+        }
+
+        function renderExtractionPanel() {
+            const container = document.getElementById('extraction-content');
+            container.innerHTML = '';
+
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study) return;
+
+            const extR1 = study.extractions.R1;
+            const extR2 = study.extractions.R2;
+            const activeExt = study.extractions[activeReviewer];
+
+            const conflictsCount = countStudyConflicts(study);
+            const badge = document.getElementById('conflict-counter-badge');
+            if (!isBlindMode && extR1 && extR2) {
+                badge.style.display = 'inline-block';
+                badge.className = conflictsCount > 0 ? 'badge-conflict' : 'badge-match';
+                badge.textContent = `${conflictsCount} Conflito(s) Detectados`;
+            } else {
+                badge.style.display = 'none';
+            }
+
+            variablesSchema.forEach(v => {
+                const card = document.createElement('div');
+                card.className = 'variable-card';
+
+                const val1 = (extR1 && extR1[v.key]) ? extR1[v.key].valor : "";
+                const val2 = (extR2 && extR2[v.key]) ? extR2[v.key].valor : "";
+                const isConflict = (!isBlindMode && extR1 && extR2 && val1.trim().toLowerCase() !== val2.trim().toLowerCase());
+
+                if (isConflict) card.classList.add('conflict');
+                else if (!isBlindMode && extR1 && extR2) card.classList.add('match');
+
+                card.innerHTML = `
+                    <div class="var-header">
+                        <span class="var-name">${v.label}</span>
+                        ${isConflict ? '<span style="color:#ef4444; font-size:0.75rem; font-weight:700;">⚠️ Conflito</span>' : ''}
+                    </div>
+                `;
+
+                if (isBlindMode) {
+                    const val = activeExt && activeExt[v.key] ? activeExt[v.key].valor : "";
+                    const quote = activeExt && activeExt[v.key] ? activeExt[v.key].exact_quote : "";
+                    const status = activeExt && activeExt[v.key] ? activeExt[v.key].status : "";
+
+                    card.innerHTML += `
+                        <div class="reviewer-block">
+                            <div class="reviewer-tag"><span>Sua Extração (${activeReviewer})</span></div>
+                            <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, '${activeReviewer}')">${escapeHtml(val)}</textarea>
+                            ${renderCitationButton(quote, status, v.key, val)}
+                        </div>
+                    `;
+                } else {
+                    const quote1 = extR1 && extR1[v.key] ? extR1[v.key].exact_quote : "";
+                    const quote2 = extR2 && extR2[v.key] ? extR2[v.key].exact_quote : "";
+                    const status1 = extR1 && extR1[v.key] ? extR1[v.key].status : "";
+                    const status2 = extR2 && extR2[v.key] ? extR2[v.key].status : "";
+
+                    card.innerHTML += `
+                        <div class="reviewer-block" style="border-left: 3px solid #818cf8;">
+                            <div class="reviewer-tag"><span>Revisor 1 (Principal)</span></div>
+                            <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, 'R1')">${escapeHtml(val1)}</textarea>
+                            ${renderCitationButton(quote1, status1, v.key, val1)}
+                        </div>
+
+                        <div class="reviewer-block" style="border-left: 3px solid #34d399;">
+                            <div class="reviewer-tag"><span>Revisor 2 (Vitor Andrade)</span></div>
+                            <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, 'R2')">${escapeHtml(val2)}</textarea>
+                            ${renderCitationButton(quote2, status2, v.key, val2)}
+                        </div>
+                    `;
+                }
+
+                container.appendChild(card);
+            });
+        }
+
+        function renderCitationButton(quote, status, varKey, valor) {
+            const displayQuote = (quote && quote.length >= 3) ? quote.substring(0, 55) + "..." : (status ? `Ver no PDF (${status})` : "Localizar no PDF");
+            return `<div class="citation-box" onclick="focusOnQuote('${escapeJs(quote)}', '${varKey}', '${escapeJs(valor)}')">🔍 Local no PDF: "${escapeHtml(displayQuote)}"</div>`;
+        }
+
+        function updateManualValue(varKey, newVal, reviewer) {
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study) return;
+            if (!study.extractions[reviewer]) study.extractions[reviewer] = {};
+            if (!study.extractions[reviewer][varKey]) study.extractions[reviewer][varKey] = {};
+            study.extractions[reviewer][varKey].valor = newVal;
+            saveStudyToDB(study);
+            renderStudiesList();
+        }
+
+        // Normalized character mapping: strips line-break hyphens, punctuation, double spaces
+        function normalizeTextForMatch(text) {
+            if (!text) return '';
+            let t = text.replace(/\u00AD/g, '');
+            t = t.replace(/-\s*\n\s*/g, '');
+            t = t.replace(/-\s+/g, '');
+            t = t.replace(/\s+/g, ' ');
+            return t.toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
+        function appendNormalizedChars(rawText, span, normPageText, charToSpan) {
+            let t = rawText.replace(/\u00AD/g, '');
+            t = t.replace(/-\s*\n\s*/g, '');
+            t = t.replace(/-\s+/g, '');
+            for (let i = 0; i < t.length; i++) {
+                const cleanChar = t[i].toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (cleanChar) {
+                    normPageText += cleanChar;
+                    charToSpan.push(span);
+                }
+            }
+            return normPageText;
+        }
+
+        function isMetadataSpan(text) {
+            const t = text.trim().toLowerCase();
+            if (!t) return true;
+            const metadataPatterns = [
+                'doi.org', 'doi:', 'springer', 'elsevier', 'wiley',
+                'received:', 'accepted:', 'published online', 'published:',
+                'original article', 'copyright', 'all rights reserved',
+                'http://', 'https://', 'crossref', 'pmid:', 'pmcid:',
+                'volume ', 'vol.', ' pp.', 'pages ', 'issn', 'isbn'
+            ];
+            if (metadataPatterns.some(p => t.includes(p))) return true;
+            if (/^received\b/.test(t) || /^accepted\b/.test(t)) return true;
+            if (/^\d{4}\s*;\s*\d+/.test(t)) return true;
+            return false;
+        }
+
+        function getAbstractSpanRange(layerSpans, pageNum) {
+            if (pageNum !== 1) return null;
+            const texts = layerSpans.map(s => s.textContent.trim().toLowerCase());
+            const abstractIdx = texts.findIndex(t =>
+                t === 'abstract' || t === 'resumo' ||
+                t.startsWith('abstract') || t.startsWith('resumo') ||
+                t === 'summary' || t.startsWith('summary')
+            );
+            if (abstractIdx === -1) return null;
+
+            const endMarkers = ['introduction', 'background', 'keywords', 'key words', 'introdução', 'introducao', 'materials and methods', 'methods'];
+            let endIdx = layerSpans.length;
+            for (let i = abstractIdx + 1; i < texts.length; i++) {
+                if (endMarkers.some(m => texts[i].includes(m))) {
+                    endIdx = i;
+                    break;
+                }
+            }
+            return { start: abstractIdx, end: endIdx };
+        }
+
+        // Strict Metadata-Filtered Quote Matcher (NO short digit matching, NO DOI/Header/Abstract matching)
+        function findQuoteInPageSpans(layer, quote) {
+            const pageNum = parseInt(layer.id.replace('text-layer-', '')) || 1;
+            const spans = Array.from(layer.querySelectorAll('span'));
+            if (spans.length === 0) return null;
+
+            const abstractRange = getAbstractSpanRange(spans, pageNum);
+
+            const validSpans = spans.filter((span, idx) => {
+                const text = span.textContent;
+                if (isMetadataSpan(text)) return false;
+                if (abstractRange && idx >= abstractRange.start && idx < abstractRange.end) return false;
+                return true;
+            });
+
+            if (validSpans.length === 0) return null;
+
+            let normPageText = '';
+            const charToSpan = [];
+
+            validSpans.forEach(span => {
+                normPageText = appendNormalizedChars(span.textContent, span, normPageText, charToSpan);
+            });
+
+            const cleanQuote = normalizeTextForMatch(quote);
+            if (cleanQuote.length < 10) return null;
+
+            const candidateSnippets = [];
+            if (cleanQuote.length >= 10) candidateSnippets.push(cleanQuote);
+            if (cleanQuote.length >= 15) candidateSnippets.push(cleanQuote.substring(0, Math.min(30, cleanQuote.length)));
+            if (cleanQuote.length >= 25) candidateSnippets.push(cleanQuote.substring(cleanQuote.length - 25));
+
+            for (let snippet of candidateSnippets) {
+                if (!snippet || snippet.length < 10) continue;
+                const matchIdx = normPageText.indexOf(snippet);
+                if (matchIdx !== -1) {
+                    const matchEnd = matchIdx + snippet.length;
+                    const matchedSpans = new Set();
+                    for (let i = matchIdx; i < matchEnd && i < charToSpan.length; i++) {
+                        matchedSpans.add(charToSpan[i]);
+                    }
+                    return Array.from(matchedSpans);
+                }
+            }
+
+            return null;
+        }
+
+        // Exclusive high-contrast highlight: clears all prior highlights, grifas ONLY the active citation
+        function focusOnQuote(quote, varKey, valor) {
+            document.querySelectorAll('.textLayer span.highlight-active').forEach(el => {
+                el.classList.remove('highlight-active');
+            });
+
+            if (!quote || quote.trim().length < 3) {
+                const page1 = document.getElementById('page-wrapper-1');
+                if (page1) page1.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
+            }
+
+            const layers = Array.from(document.querySelectorAll('.textLayer'));
+
+            for (let layer of layers) {
+                const matchedSpans = findQuoteInPageSpans(layer, quote);
+                if (matchedSpans && matchedSpans.length > 0) {
+                    matchedSpans.forEach(span => span.classList.add('highlight-active'));
+                    matchedSpans[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    return;
+                }
+            }
+
+            const page1 = document.getElementById('page-wrapper-1');
+            if (page1) page1.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function escapeHtml(str) { return (str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+        function escapeJs(str) { return (str || "").replace(/'/g, "\\'").replace(/"/g, '\\"'); }
+
+        function exportData(type) {
+            if (studies.length === 0) {
+                alert("Nenhum estudo carregado para exportar.");
+                return;
+            }
+
+            let headers = ["Study Title", "Author & Year", ...variablesSchema.map(v => v.label)];
+            if (!isBlindMode) {
+                headers = ["Study Title", "Author & Year"];
+                variablesSchema.forEach(v => {
+                    headers.push(`${v.label} (R1)`);
+                    headers.push(`${v.label} (R2)`);
+                    headers.push(`${v.label} (Status)`);
+                });
+            }
+
+            let csvContent = "\ufeff" + headers.map(h => `"${h}"`).join(",") + "\n";
+
+            studies.forEach(study => {
+                let row = [`"${study.title}"`, `"${study.subtitle || ''}"`];
+                variablesSchema.forEach(v => {
+                    const valR1 = study.extractions.R1 && study.extractions.R1[v.key] ? study.extractions.R1[v.key].valor : "";
+                    const valR2 = study.extractions.R2 && study.extractions.R2[v.key] ? study.extractions.R2[v.key].valor : "";
+
+                    if (isBlindMode) {
+                        const val = study.extractions[activeReviewer] && study.extractions[activeReviewer][v.key] ? study.extractions[activeReviewer][v.key].valor : "";
+                        row.push(`"${(val || '').replace(/"/g, '""')}"`);
+                    } else {
+                        const isConflict = (valR1.trim().toLowerCase() !== valR2.trim().toLowerCase()) && valR1 && valR2;
+                        row.push(`"${(valR1 || '').replace(/"/g, '""')}"`);
+                        row.push(`"${(valR2 || '').replace(/"/g, '""')}"`);
+                        row.push(`"${isConflict ? 'CONFLICT' : 'MATCH'}"`);
+                    }
+                });
+                csvContent += row.join(",") + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = type === 'audit' ? "relatorio_par_auditoria.csv" : "extracao_estudos_revisao.csv";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    </script>
+</body>
+</html>
