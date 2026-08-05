@@ -700,8 +700,9 @@
             <div style="display: flex; flex-direction: column; gap: 0.4rem;">
                 <label style="font-size: 0.8rem; font-weight: 600;">Modelo Gemini:</label>
                 <select id="model-select-input">
-                    <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (Recomendado)</option>
-                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                    <option value="gemini-3.5-flash" selected>Gemini 3.5 Flash (Recomendado)</option>
+                    <option value="gemini-3.6-flash">Gemini 3.6 Flash (Mais Novo)</option>
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (Legado)</option>
                 </select>
             </div>
 
@@ -890,7 +891,7 @@
 
         function loadSettingsFromStorage() {
             const savedKey = localStorage.getItem('gemini_api_key') || "";
-            const savedModel = localStorage.getItem('gemini_model') || "gemini-2.5-flash";
+            const savedModel = localStorage.getItem('gemini_model') || "gemini-3.5-flash";
             const savedRoom = localStorage.getItem('cloud_room_id') || "revisao-dor-cancermama-2026";
             
             document.getElementById('api-key-input').value = savedKey;
