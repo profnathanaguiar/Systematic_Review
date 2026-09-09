@@ -583,7 +583,7 @@
 <body>
 
     <!-- Version Badge -->
-    <div class="version-badge">Mark 15</div>
+    <div class="version-badge">Mark 16</div>
 
     <!-- Header -->
     <header>
@@ -1526,8 +1526,8 @@
                                     contents: [{ parts: partsPayload }],
                                     generationConfig: {
                                         temperature: 0.1,
-                                        maxOutputTokens: 8192,
-                                        responseMimeType: "application/json"
+                                        maxOutputTokens: 8192
+                                        // Nota: responseMimeType removido pois causa resposta vazia em modelos mais antigos
                                     }
                                 };
 
@@ -1551,7 +1551,7 @@
                                 if (response.status === 404) {
                                     console.info(`Modelo ${currentModel} não encontrado em ${ver} (404). Testando alternativa...`);
                                     lastError = new Error(`Modelo ${currentModel} não encontrado (${ver}).`);
-                                    break; // Sai do retry e tenta próxima versão/modelo
+                                    break;
                                 }
 
                                 if (!response.ok) {
@@ -1579,11 +1579,24 @@
                 }
 
                 const result = await response.json();
-                if (!result.candidates || !result.candidates[0] || !result.candidates[0].content || !result.candidates[0].content.parts || !result.candidates[0].content.parts[0]) {
-                    throw new Error("Resposta da IA vazia ou bloqueada por filtros de segurança.");
+
+                // Diagnóstico detalhado de resposta vazia ou bloqueada
+                if (!result.candidates || result.candidates.length === 0) {
+                    const blockReason = result.promptFeedback?.blockReason || "desconhecido";
+                    throw new Error(`Resposta bloqueada pela API do Gemini. Motivo: ${blockReason}. Verifique se o arquivo PDF não contém conteúdo restrito.`);
                 }
 
-                const rawText = result.candidates[0].content.parts[0].text || "";
+                const candidate = result.candidates[0];
+                if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+                    const finishReason = candidate.finishReason || "desconhecido";
+                    throw new Error(`Geração interrompida antes de concluir. Motivo: ${finishReason}. Tente reduzir o número de campos de extração ou o tamanho do PDF.`);
+                }
+
+                const rawText = (candidate.content.parts[0].text || "").trim();
+                if (!rawText) {
+                    throw new Error(`A IA retornou texto vazio. finishReason: ${candidate.finishReason || 'N/A'}. Tente novamente.`);
+                }
+
                 const parsed = safeExtractJSON(rawText);
                 study.extractions[activeReviewer] = parsed;
 
