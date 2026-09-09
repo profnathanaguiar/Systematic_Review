@@ -823,6 +823,14 @@
 
         // Init Persistence
         window.addEventListener('DOMContentLoaded', async () => {
+            // Limpa modelo inválido salvo em localStorage (TTS, versões antigas, auto-salvo incorreto)
+            const savedModel = localStorage.getItem('gemini_model') || '';
+            const invalidModelKeywords = ['tts', 'voice', 'live', 'vision', 'transcription', 'embedding', '3.5', '3.6', 'auto'];
+            if (!savedModel || invalidModelKeywords.some(kw => savedModel.includes(kw))) {
+                localStorage.removeItem('gemini_model');
+                console.log("Modelo inválido removido do localStorage:", savedModel);
+            }
+
             loadSettingsFromStorage();
             setupDragAndDrop();
             setupVectorZoom();
@@ -894,16 +902,24 @@
 
         function loadSettingsFromStorage() {
             const savedKey = localStorage.getItem('gemini_api_key') || "";
-            let savedModel = localStorage.getItem('gemini_model') || "gemini-2.5-flash";
-            // Sanitiza modelos descontinuados ou inválidos que causam erro 503/404
-            if (savedModel === "gemini-3.5-flash" || savedModel === "gemini-3.6-flash") {
-                savedModel = "gemini-2.5-flash";
-                localStorage.setItem('gemini_model', savedModel);
+            let savedModel = localStorage.getItem('gemini_model') || "";
+            
+            // Sanitiza qualquer modelo inválido ou incompatível com geração de texto
+            const INVALID_KEYWORDS = ['tts', 'voice', 'live', 'transcription', 'embedding', '3.5', '3.6', 'auto'];
+            if (!savedModel || INVALID_KEYWORDS.some(kw => savedModel.includes(kw))) {
+                savedModel = "auto";
+                localStorage.removeItem('gemini_model');
             }
+
             const savedRoom = localStorage.getItem('cloud_room_id') || "revisao-dor-cancermama-2026";
             
             document.getElementById('api-key-input').value = savedKey;
-            document.getElementById('model-select-input').value = savedModel;
+            const modelSelect = document.getElementById('model-select-input');
+            if (Array.from(modelSelect.options).some(o => o.value === savedModel)) {
+                modelSelect.value = savedModel;
+            } else {
+                modelSelect.value = "auto";
+            }
             document.getElementById('cloud-room-input').value = savedRoom;
         }
 
@@ -1372,6 +1388,11 @@
         }
 
         // Dynamic Discovery of Available Gemini Models for the User's API Key
+        const BLOCKED_MODEL_KEYWORDS = ["embedding", "aqa", "imagen", "tts", "-tts", "voice", "live", "vision", "transcription"];
+        function isBlockedModel(name) {
+            return BLOCKED_MODEL_KEYWORDS.some(kw => name.includes(kw));
+        }
+
         async function discoverAvailableGeminiModels(apiKey) {
             const endpoints = [
                 `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
@@ -1385,11 +1406,11 @@
                         const data = await res.json();
                         if (data.models && Array.isArray(data.models)) {
                             const available = data.models
-                                .filter(m => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes("generateContent"))
+                                .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
                                 .map(m => m.name.replace(/^models\//, ''))
-                                .filter(name => !name.includes("embedding") && !name.includes("aqa") && !name.includes("imagen"));
+                                .filter(name => !isBlockedModel(name));
                             if (available.length > 0) {
-                                console.log("Modelos detectados na API:", available);
+                                console.log("Modelos de texto compatíveis detectados:", available);
                                 return available;
                             }
                         }
@@ -1408,6 +1429,13 @@
 
             const apiKey = localStorage.getItem('gemini_api_key') || document.getElementById('api-key-input').value.trim();
             let modelName = localStorage.getItem('gemini_model') || document.getElementById('model-select-input').value;
+
+            // Sanitiza qualquer modelo inválido (TTS, auto-discovery mal-salvo, versões antigas)
+            if (!modelName || modelName === "auto" || isBlockedModel(modelName) ||
+                modelName.includes("3.5") || modelName.includes("3.6")) {
+                modelName = null; // Deixa a descoberta automática escolher o melhor
+                localStorage.removeItem('gemini_model');
+            }
 
             // Verifica se o usuário está tentando usar chave inválida/antiga
             if (!apiKey || apiKey.includes("Ab8RN6JzoMLpH6E") || apiKey.includes("Ab8RN6LzoMLpH6E")) {
@@ -1436,9 +1464,9 @@
                 // 1. Descobre dinamicamente os modelos habilitados na chave do usuário
                 const discoveredModels = await discoverAvailableGeminiModels(apiKey);
                 
-                // 2. Monta fila inteligente de candidatos
+                // 2. Monta fila de candidatos: modelo salvo VÁLIDO → descobertos → fallbacks padrão
                 const candidateList = [];
-                if (modelName && modelName !== "auto") candidateList.push(modelName);
+                if (modelName && !isBlockedModel(modelName)) candidateList.push(modelName);
                 
                 // Prioriza modelos descobertos compatíveis
                 discoveredModels.forEach(m => {
