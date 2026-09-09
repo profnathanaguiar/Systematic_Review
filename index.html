@@ -1427,7 +1427,8 @@
                     if (!f.base64) return;
                     const mime = resolveGeminiMimeType(f);
                     if (mime) {
-                        partsPayload.push({ inlineData: { mimeType: mime, data: f.base64 } });
+                        const cleanData = f.base64.includes(',') ? f.base64.split(',')[1] : f.base64;
+                        partsPayload.push({ inlineData: { mimeType: mime, data: cleanData } });
                     }
                 });
                 partsPayload.push({ text: prompt });
@@ -1476,10 +1477,19 @@
                             try {
                                 document.getElementById('run-ai-btn').textContent = `⚡ Analisando (${currentModel} [${ver}])...`;
 
+                                const requestBody = {
+                                    contents: [{ parts: partsPayload }],
+                                    generationConfig: {
+                                        temperature: 0.1,
+                                        maxOutputTokens: 8192,
+                                        responseMimeType: "application/json"
+                                    }
+                                };
+
                                 response = await fetch(`https://generativelanguage.googleapis.com/${ver}/models/${currentModel}:generateContent?key=${apiKey}`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ contents: [{ parts: partsPayload }] })
+                                    body: JSON.stringify(requestBody)
                                 });
 
                                 // 503 (Overloaded) ou 429 (Rate limit): espera e tenta novamente
@@ -1522,15 +1532,14 @@
                 if (!success || !response || !response.ok) {
                     throw lastError || new Error("Não foi possível conectar com os modelos do Gemini. Verifique sua chave API em Configurações.");
                 }
+
                 const result = await response.json();
-                let rawText = result.candidates[0].content.parts[0].text.trim();
+                if (!result.candidates || !result.candidates[0] || !result.candidates[0].content || !result.candidates[0].content.parts || !result.candidates[0].content.parts[0]) {
+                    throw new Error("Resposta da IA vazia ou bloqueada por filtros de segurança.");
+                }
 
-                if (rawText.startsWith("```json")) rawText = rawText.substring(7);
-                if (rawText.startsWith("```")) rawText = rawText.substring(3);
-                if (rawText.endsWith("```")) rawText = rawText.substring(0, rawText.length - 3);
-                rawText = rawText.trim();
-
-                const parsed = JSON.parse(rawText);
+                const rawText = result.candidates[0].content.parts[0].text || "";
+                const parsed = safeExtractJSON(rawText);
                 study.extractions[activeReviewer] = parsed;
 
                 if (parsed.article_title && parsed.article_title.valor && parsed.article_title.valor !== 'could not be found') {
@@ -1550,6 +1559,47 @@
             } finally {
                 document.getElementById('run-ai-btn').disabled = false;
                 document.getElementById('run-ai-btn').textContent = "✨ Extrair com Gemini";
+            }
+        }
+
+        function safeExtractJSON(rawText) {
+            if (!rawText || typeof rawText !== 'string') throw new Error("Resposta da IA vazia.");
+            
+            let text = rawText.trim();
+            // Remove possíveis blocos de código markdown
+            text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+            
+            // 1. Tenta parse direto
+            try {
+                return JSON.parse(text);
+            } catch(e1) {
+                // 2. Extrai substring entre o primeiro { e o último }
+                const firstBrace = text.indexOf('{');
+                const lastBrace = text.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                    try {
+                        return JSON.parse(text.substring(firstBrace, lastBrace + 1));
+                    } catch(e2) {}
+                }
+                
+                // 3. Auto-reparo de JSON truncado (fecha aspas e chaves pendentes)
+                let repaired = text;
+                if (firstBrace !== -1) repaired = repaired.substring(firstBrace);
+                
+                const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
+                if (quoteCount % 2 !== 0) repaired += '"';
+                
+                const openBraces = (repaired.match(/\{/g) || []).length;
+                const closeBraces = (repaired.match(/\}/g) || []).length;
+                for (let i = 0; i < (openBraces - closeBraces); i++) {
+                    repaired += '}';
+                }
+                
+                try {
+                    return JSON.parse(repaired);
+                } catch(e3) {
+                    throw new Error("Erro na estrutura do JSON retornado pela IA (" + e1.message + ")");
+                }
             }
         }
 
