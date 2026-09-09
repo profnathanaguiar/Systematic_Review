@@ -12,6 +12,20 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf_viewer.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <style>
+        /* Version Badge */
+        .version-badge {
+            position: fixed;
+            bottom: 8px;
+            right: 10px;
+            z-index: 9999;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: rgba(148, 163, 184, 0.5);
+            letter-spacing: 0.04em;
+            pointer-events: none;
+            user-select: none;
+        }
+
         :root {
             --bg-dark: #0f172a;
             --panel-bg: #1e293b;
@@ -567,6 +581,9 @@
     </style>
 </head>
 <body>
+
+    <!-- Version Badge -->
+    <div class="version-badge">Mark 15</div>
 
     <!-- Header -->
     <header>
