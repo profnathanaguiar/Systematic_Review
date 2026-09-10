@@ -15,15 +15,18 @@
         /* Version Badge */
         .version-badge {
             position: fixed;
-            top: 4px;
-            left: 8px;
-            z-index: 9999;
+            top: 62px;
+            left: 10px;
+            z-index: 50;
             font-size: 0.6rem;
             font-weight: 700;
-            color: rgba(148, 163, 184, 0.4);
+            color: rgba(148, 163, 184, 0.45);
             letter-spacing: 0.05em;
             pointer-events: none;
             user-select: none;
+            background: rgba(9, 13, 22, 0.7);
+            padding: 1px 5px;
+            border-radius: 3px;
         }
 
         :root {
@@ -118,8 +121,9 @@
         .switch {
             position: relative;
             display: inline-block;
-            width: 42px;
+            width: 40px;
             height: 22px;
+            flex-shrink: 0;
         }
 
         .switch input { opacity: 0; width: 0; height: 0; }
@@ -136,15 +140,17 @@
         .slider:before {
             position: absolute;
             content: "";
-            height: 16px; width: 16px;
-            left: 3px; bottom: 3px;
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            top: 3px;
             background-color: white;
             transition: .3s;
             border-radius: 50%;
         }
 
         input:checked + .slider { background-color: var(--success); }
-        input:checked + .slider:before { transform: translateX(20px); }
+        input:checked + .slider:before { transform: translateX(18px); }
 
         .btn {
             background: var(--primary);
@@ -583,7 +589,7 @@
 <body>
 
     <!-- Version Badge -->
-    <div class="version-badge">Mark 19</div>
+    <div class="version-badge">Mark 20</div>
 
     <!-- Header -->
     <header>
@@ -1906,8 +1912,10 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
             return null;
         }
 
-        // Exclusive high-contrast highlight: clears all prior highlights, grifas ONLY the active citation
-        function focusOnQuote(quote, varKey, valor) {
+        // focusOnQuote — busca a citação em TODOS os arquivos do estudo,
+        // alternando automaticamente para o documento correto quando encontrada
+        async function focusOnQuote(quote, varKey, valor) {
+            // Limpa highlights anteriores
             document.querySelectorAll('.textLayer span.highlight-active').forEach(el => {
                 el.classList.remove('highlight-active');
             });
@@ -1918,9 +1926,9 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                 return;
             }
 
-            const layers = Array.from(document.querySelectorAll('.textLayer'));
-
-            for (let layer of layers) {
+            // 1. Tenta encontrar no documento ATUALMENTE visível no viewer
+            const currentLayers = Array.from(document.querySelectorAll('.textLayer'));
+            for (let layer of currentLayers) {
                 const matchedSpans = findQuoteInPageSpans(layer, quote);
                 if (matchedSpans && matchedSpans.length > 0) {
                     matchedSpans.forEach(span => span.classList.add('highlight-active'));
@@ -1929,6 +1937,100 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                 }
             }
 
+            // 2. Não encontrou — busca nos OUTROS arquivos do estudo
+            const study = studies.find(s => s.id === activeStudyId);
+            if (!study || study.files.length <= 1) {
+                // Apenas 1 arquivo e não encontrou: rola ao topo
+                const page1 = document.getElementById('page-wrapper-1');
+                if (page1) page1.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
+            }
+
+            const cleanQuoteNorm = normalizeTextForMatch(quote);
+            if (cleanQuoteNorm.length < 10) return;
+
+            // Itera pelos outros arquivos do estudo (excluindo o atual)
+            for (const fileObj of study.files) {
+                if (fileObj.id === activeFileId) continue;
+                if (!fileObj.base64 || !(fileObj.type || '').includes('pdf')) continue;
+
+                // Carrega o PDF deste arquivo em memória para extração de texto
+                let testDoc = null;
+                try {
+                    const pdfBytes = base64ToUint8Array(fileObj.base64);
+                    testDoc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+                } catch (e) {
+                    continue;
+                }
+
+                let foundInFile = false;
+                for (let pageNum = 1; pageNum <= testDoc.numPages; pageNum++) {
+                    const page = await testDoc.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+
+                    // Constrói texto normalizado desta página para busca
+                    let normPageText = '';
+                    const items = textContent.items || [];
+                    for (const item of items) {
+                        if (item.str) {
+                            normPageText += item.str.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        }
+                    }
+
+                    // Verifica se a citação existe nesta página
+                    const snippets = [
+                        cleanQuoteNorm,
+                        cleanQuoteNorm.length >= 15 ? cleanQuoteNorm.substring(0, Math.min(30, cleanQuoteNorm.length)) : null,
+                        cleanQuoteNorm.length >= 25 ? cleanQuoteNorm.substring(cleanQuoteNorm.length - 25) : null
+                    ].filter(s => s && s.length >= 10);
+
+                    const found = snippets.some(snippet => normPageText.includes(snippet));
+                    if (found) {
+                        foundInFile = true;
+                        try { testDoc.destroy(); } catch(e) {}
+
+                        // Alterna para o arquivo correto e aguarda renderização
+                        await switchActiveFile(fileObj.id);
+
+                        // Espera o textLayer ser renderizado (até 3 segundos)
+                        const targetPageId = `text-layer-${pageNum}`;
+                        let waited = 0;
+                        const waitInterval = 200;
+                        const maxWait = 3000;
+                        await new Promise(resolve => {
+                            const checkReady = setInterval(() => {
+                                const layer = document.getElementById(targetPageId);
+                                if ((layer && layer.querySelectorAll('span').length > 0) || waited >= maxWait) {
+                                    clearInterval(checkReady);
+                                    resolve();
+                                }
+                                waited += waitInterval;
+                            }, waitInterval);
+                        });
+
+                        // Agora busca e destaca a citação no viewer atualizado
+                        const allLayers = Array.from(document.querySelectorAll('.textLayer'));
+                        for (let layer of allLayers) {
+                            const matchedSpans = findQuoteInPageSpans(layer, quote);
+                            if (matchedSpans && matchedSpans.length > 0) {
+                                matchedSpans.forEach(span => span.classList.add('highlight-active'));
+                                matchedSpans[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                return;
+                            }
+                        }
+                        // Encontrou o arquivo mas não achou o span exato — rola para a página certa
+                        const pageWrapper = document.getElementById(`page-wrapper-${pageNum}`);
+                        if (pageWrapper) pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        return;
+                    }
+
+                    if (!foundInFile) {
+                        try { testDoc.destroy(); } catch(e) {}
+                    }
+                }
+            }
+
+            // Não encontrou em nenhum arquivo — rola ao topo do atual
             const page1 = document.getElementById('page-wrapper-1');
             if (page1) page1.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
