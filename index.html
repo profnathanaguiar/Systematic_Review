@@ -583,7 +583,7 @@
 <body>
 
     <!-- Version Badge -->
-    <div class="version-badge">Mark 16</div>
+    <div class="version-badge">Mark 17</div>
 
     <!-- Header -->
     <header>
@@ -1404,69 +1404,43 @@
             if (pdfDoc) renderPDFPagesForDoc(pdfDoc);
         }
 
-        // Dynamic Discovery of Available Gemini Models for the User's API Key
-        const BLOCKED_MODEL_KEYWORDS = ["embedding", "aqa", "imagen", "tts", "-tts", "voice", "live", "vision", "transcription"];
-        function isBlockedModel(name) {
-            return BLOCKED_MODEL_KEYWORDS.some(kw => name.includes(kw));
-        }
+        // Lista fixa e comprovada de modelos Gemini com suporte multimodal (PDF)
+        // A descoberta automática foi removida pois retornava modelos Gemma incompatíveis (gemma-4-26b-a40-lt, etc.)
+        const GEMINI_MULTIMODAL_MODELS = [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro-latest",
+            "gemini-1.5-pro"
+        ];
 
-        async function discoverAvailableGeminiModels(apiKey) {
-            const endpoints = [
-                `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-                `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
-            ];
-
-            for (let url of endpoints) {
-                try {
-                    const res = await fetch(url);
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data.models && Array.isArray(data.models)) {
-                            const available = data.models
-                                .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
-                                .map(m => m.name.replace(/^models\//, ''))
-                                .filter(name => !isBlockedModel(name));
-                            if (available.length > 0) {
-                                console.log("Modelos de texto compatíveis detectados:", available);
-                                return available;
-                            }
-                        }
-                    }
-                } catch(e) {
-                    console.warn("Aviso na detecção de modelos:", e);
-                }
-            }
-            return [];
-        }
-
-        // Multi-file Gemini AI Extraction with Dynamic Discovery & Fallback Cascade
+        // Multi-file Gemini AI Extraction — lista fixa, sem descoberta automática
         async function runAIExtraction() {
             const study = studies.find(s => s.id === activeStudyId);
             if (!study) return;
 
             const apiKey = localStorage.getItem('gemini_api_key') || document.getElementById('api-key-input').value.trim();
-            let modelName = localStorage.getItem('gemini_model') || document.getElementById('model-select-input').value;
+            let preferredModel = localStorage.getItem('gemini_model') || "";
 
-            // Sanitiza qualquer modelo inválido (TTS, auto-discovery mal-salvo, versões antigas)
-            if (!modelName || modelName === "auto" || isBlockedModel(modelName) ||
-                modelName.includes("3.5") || modelName.includes("3.6")) {
-                modelName = null; // Deixa a descoberta automática escolher o melhor
+            // Sanitiza: descarta qualquer modelo que não seja gemini-*
+            if (!preferredModel.startsWith("gemini-")) {
+                preferredModel = "";
                 localStorage.removeItem('gemini_model');
             }
 
-            // Verifica se o usuário está tentando usar chave inválida/antiga
-            if (!apiKey || apiKey.includes("Ab8RN6JzoMLpH6E") || apiKey.includes("Ab8RN6LzoMLpH6E")) {
-                alert("Por favor, configure uma chave API válida do Gemini no botão ⚙️ Configurações.\n\nVocê pode gerar uma chave gratuita em https://aistudio.google.com/");
+            if (!apiKey) {
+                alert("Por favor, configure sua chave API do Gemini no botão ⚙️ Configurações.\n\nChave gratuita em: https://aistudio.google.com/");
                 openSettingsModal();
                 return;
             }
 
             document.getElementById('run-ai-btn').disabled = true;
-            document.getElementById('run-ai-btn').textContent = `⚡ Identificando conexão com Gemini...`;
+            document.getElementById('run-ai-btn').textContent = `⚡ Iniciando extração...`;
 
             try {
                 const prompt = buildEnglishPrompt();
-                
+
                 const partsPayload = [];
                 study.files.forEach(f => {
                     if (!f.base64) return;
@@ -1478,104 +1452,81 @@
                 });
                 partsPayload.push({ text: prompt });
 
-                // 1. Descobre dinamicamente os modelos habilitados na chave do usuário
-                const discoveredModels = await discoverAvailableGeminiModels(apiKey);
-                
-                // 2. Monta fila de candidatos: modelo salvo VÁLIDO → descobertos → fallbacks padrão
+                // Constrói fila: modelo preferido do usuário primeiro, depois fallbacks
                 const candidateList = [];
-                if (modelName && !isBlockedModel(modelName)) candidateList.push(modelName);
-                
-                // Prioriza modelos descobertos compatíveis
-                discoveredModels.forEach(m => {
-                    if (!candidateList.includes(m)) candidateList.push(m);
-                });
-
-                // Fallbacks padrão de mercado
-                const standardFallbacks = [
-                    "gemini-2.5-flash",
-                    "gemini-2.0-flash",
-                    "gemini-1.5-flash-latest",
-                    "gemini-1.5-flash",
-                    "gemini-1.5-pro-latest",
-                    "gemini-1.5-pro",
-                    "gemini-pro"
-                ];
-                standardFallbacks.forEach(m => {
+                if (preferredModel && !candidateList.includes(preferredModel)) {
+                    candidateList.push(preferredModel);
+                }
+                GEMINI_MULTIMODAL_MODELS.forEach(m => {
                     if (!candidateList.includes(m)) candidateList.push(m);
                 });
 
                 let response = null;
                 let lastError = null;
                 let success = false;
-                const apiVersions = ['v1beta', 'v1'];
 
-                for (let m = 0; m < candidateList.length && !success; m++) {
-                    const currentModel = candidateList[m];
+                for (let mi = 0; mi < candidateList.length && !success; mi++) {
+                    const currentModel = candidateList[mi];
+                    const maxAttempts = 3;
+                    let delay = 2000;
 
-                    for (let ver of apiVersions) {
-                        if (success) break;
+                    for (let attempt = 1; attempt <= maxAttempts && !success; attempt++) {
+                        try {
+                            document.getElementById('run-ai-btn').textContent = `⚡ Analisando (${currentModel})${attempt > 1 ? ' tentativa ' + attempt : ''}...`;
 
-                        const retries = 2;
-                        let delay = 1500;
+                            const requestBody = {
+                                contents: [{ parts: partsPayload }],
+                                generationConfig: {
+                                    temperature: 0.1,
+                                    maxOutputTokens: 8192
+                                }
+                            };
 
-                        for (let attempt = 1; attempt <= retries; attempt++) {
-                            try {
-                                document.getElementById('run-ai-btn').textContent = `⚡ Analisando (${currentModel} [${ver}])...`;
-
-                                const requestBody = {
-                                    contents: [{ parts: partsPayload }],
-                                    generationConfig: {
-                                        temperature: 0.1,
-                                        maxOutputTokens: 8192
-                                        // Nota: responseMimeType removido pois causa resposta vazia em modelos mais antigos
-                                    }
-                                };
-
-                                response = await fetch(`https://generativelanguage.googleapis.com/${ver}/models/${currentModel}:generateContent?key=${apiKey}`, {
+                            response = await fetch(
+                                `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`,
+                                {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify(requestBody)
-                                });
-
-                                // 503 (Overloaded) ou 429 (Rate limit): espera e tenta novamente
-                                if (response.status === 503 || response.status === 429) {
-                                    lastError = new Error(`Servidor Gemini ocupado (${response.status}) no modelo ${currentModel}.`);
-                                    console.warn(`Servidor ocupado (${response.status}) em ${currentModel} [${ver}]. Aguardando ${delay}ms...`);
-                                    document.getElementById('run-ai-btn').textContent = `⏳ Servidor ocupado (${response.status}). Aguardando ${delay/1000}s...`;
-                                    await new Promise(resolve => setTimeout(resolve, delay));
-                                    delay = Math.min(delay * 1.5, 4000);
-                                    continue;
                                 }
+                            );
 
-                                // 404 (Not Found): modelo/versão não suportada, passa para o próximo modelo/versão
-                                if (response.status === 404) {
-                                    console.info(`Modelo ${currentModel} não encontrado em ${ver} (404). Testando alternativa...`);
-                                    lastError = new Error(`Modelo ${currentModel} não encontrado (${ver}).`);
-                                    break;
-                                }
+                            if (response.status === 503 || response.status === 429) {
+                                lastError = new Error(`Servidor sobrecarregado (${response.status}).`);
+                                document.getElementById('run-ai-btn').textContent = `⏳ Aguardando ${Math.round(delay/1000)}s (${currentModel})...`;
+                                await new Promise(r => setTimeout(r, delay));
+                                delay = Math.min(delay * 2, 8000);
+                                continue;
+                            }
 
-                                if (!response.ok) {
-                                    const errText = await response.text();
-                                    lastError = new Error(`Erro ${response.status}: ${errText}`);
-                                    console.warn(`Resposta não OK (${response.status}):`, errText);
-                                    break;
-                                }
+                            if (response.status === 404) {
+                                lastError = new Error(`Modelo ${currentModel} não disponível na sua chave API.`);
+                                console.info(`${currentModel}: 404 — pulando para o próximo modelo.`);
+                                break; // próximo modelo
+                            }
 
-                                success = true;
-                                break;
-                            } catch (netErr) {
-                                lastError = netErr;
-                                console.warn(`Erro de rede em ${currentModel}: ${netErr.message}`);
-                                if (attempt < retries) {
-                                    await new Promise(resolve => setTimeout(resolve, delay));
-                                }
+                            if (!response.ok) {
+                                const errText = await response.text();
+                                lastError = new Error(`Erro ${response.status} (${currentModel}): ${errText.substring(0, 200)}`);
+                                console.warn(`Erro ${response.status}:`, errText);
+                                break; // próximo modelo
+                            }
+
+                            success = true;
+
+                        } catch (netErr) {
+                            lastError = netErr;
+                            console.warn(`Erro de rede (${currentModel}):`, netErr.message);
+                            if (attempt < maxAttempts) {
+                                await new Promise(r => setTimeout(r, delay));
+                                delay = Math.min(delay * 2, 8000);
                             }
                         }
                     }
                 }
 
                 if (!success || !response || !response.ok) {
-                    throw lastError || new Error("Não foi possível conectar com os modelos do Gemini. Verifique sua chave API em Configurações.");
+                    throw lastError || new Error("Nenhum modelo Gemini disponível. Verifique sua chave API em ⚙️ Configurações.");
                 }
 
                 const result = await response.json();
