@@ -583,7 +583,7 @@
 <body>
 
     <!-- Version Badge -->
-    <div class="version-badge">Mark 17</div>
+    <div class="version-badge">Mark 19</div>
 
     <!-- Header -->
     <header>
@@ -718,11 +718,12 @@
                 <label style="font-size: 0.8rem; font-weight: 600;">Modelo Gemini:</label>
                 <select id="model-select-input">
                     <option value="auto" selected>✨ Detecção Automática (Recomendado)</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (Mais Recente & Rápido)</option>
+                    <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                    <option value="gemini-3.5-flash">Gemini 3.5 Flash (Estável)</option>
+                    <option value="gemini-3.1-pro">Gemini 3.1 Pro (Mais Potente)</option>
                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                    <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Latest)</option>
-                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (Legado)</option>
                 </select>
             </div>
 
@@ -840,12 +841,12 @@
 
         // Init Persistence
         window.addEventListener('DOMContentLoaded', async () => {
-            // Limpa modelo inválido salvo em localStorage (TTS, versões antigas, auto-salvo incorreto)
+            // Limpa modelos que NÃO são LLMs de texto/multimodais (TTS, voz, live, gemma)
             const savedModel = localStorage.getItem('gemini_model') || '';
-            const invalidModelKeywords = ['tts', 'voice', 'live', 'vision', 'transcription', 'embedding', '3.5', '3.6', 'auto'];
-            if (!savedModel || invalidModelKeywords.some(kw => savedModel.includes(kw))) {
+            const invalidModelKeywords = ['tts', 'voice', 'live', 'transcription', 'embedding', 'gemma', 'imagen', 'aqa'];
+            if (savedModel && invalidModelKeywords.some(kw => savedModel.toLowerCase().includes(kw))) {
                 localStorage.removeItem('gemini_model');
-                console.log("Modelo inválido removido do localStorage:", savedModel);
+                console.log("Modelo incompatível removido do localStorage:", savedModel);
             }
 
             loadSettingsFromStorage();
@@ -919,11 +920,11 @@
 
         function loadSettingsFromStorage() {
             const savedKey = localStorage.getItem('gemini_api_key') || "";
-            let savedModel = localStorage.getItem('gemini_model') || "";
+            let savedModel = localStorage.getItem('gemini_model') || "auto";
             
-            // Sanitiza qualquer modelo inválido ou incompatível com geração de texto
-            const INVALID_KEYWORDS = ['tts', 'voice', 'live', 'transcription', 'embedding', '3.5', '3.6', 'auto'];
-            if (!savedModel || INVALID_KEYWORDS.some(kw => savedModel.includes(kw))) {
+            // Sanitiza apenas modelos que realmente não são texto/multimodais
+            const INVALID_KEYWORDS = ['tts', 'voice', 'live', 'transcription', 'embedding', 'gemma', 'imagen', 'aqa'];
+            if (savedModel && INVALID_KEYWORDS.some(kw => savedModel.toLowerCase().includes(kw))) {
                 savedModel = "auto";
                 localStorage.removeItem('gemini_model');
             }
@@ -1404,18 +1405,62 @@
             if (pdfDoc) renderPDFPagesForDoc(pdfDoc);
         }
 
-        // Lista fixa e comprovada de modelos Gemini com suporte multimodal (PDF)
-        // A descoberta automática foi removida pois retornava modelos Gemma incompatíveis (gemma-4-26b-a40-lt, etc.)
+        // Modelos multimodais comprovados para PDF (família Gemini 3.x e 2.x ativos em 2026)
         const GEMINI_MULTIMODAL_MODELS = [
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.5-flash",
+            "gemini-3.1-pro",
+            "gemini-3.5-flash-lite",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro-latest",
-            "gemini-1.5-pro"
+            "gemini-1.5-flash"
         ];
+        const GEMINI_API_VERSIONS = ["v1beta", "v1"];
 
-        // Multi-file Gemini AI Extraction — lista fixa, sem descoberta automática
+        // Descoberta dinâmica dos modelos habilitados na chave do usuário
+        async function discoverAvailableGeminiModels(apiKey) {
+            const endpoints = [
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                "https://generativelanguage.googleapis.com/v1/models"
+            ];
+
+            for (const base of endpoints) {
+                try {
+                    const res = await fetch(`${base}?key=${apiKey}`, {
+                        headers: { 'x-goog-api-key': apiKey }
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.models && Array.isArray(data.models)) {
+                            const available = data.models
+                                .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
+                                .map(m => m.name.replace(/^models\//, ''))
+                                .filter(name => {
+                                    const n = name.toLowerCase();
+                                    if (!n.startsWith("gemini-")) return false;
+                                    const isExcluded = n.includes("tts") || n.includes("live") || n.includes("image") || 
+                                                       n.includes("transcribe") || n.includes("embedding") || n.includes("aqa") || 
+                                                       n.includes("imagen") || n.includes("gemma");
+                                    return !isExcluded && (n.includes("flash") || n.includes("pro"));
+                                });
+
+                            if (available.length > 0) {
+                                // Ordena decrescente: 3.8 > 3.7 > 3.5 > 2.5 > 1.5
+                                available.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+                                console.log("Modelos multimodais compatíveis detectados na chave:", available);
+                                return available;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Aviso na detecção dinâmica:", e);
+                }
+            }
+            return [];
+        }
+
+        // Multi-file Gemini AI Extraction
         async function runAIExtraction() {
             const study = studies.find(s => s.id === activeStudyId);
             if (!study) return;
@@ -1423,10 +1468,9 @@
             const apiKey = localStorage.getItem('gemini_api_key') || document.getElementById('api-key-input').value.trim();
             let preferredModel = localStorage.getItem('gemini_model') || "";
 
-            // Sanitiza: descarta qualquer modelo que não seja gemini-*
-            if (!preferredModel.startsWith("gemini-")) {
+            // Se for "auto" ou não começar com gemini-, limpa para usar descoberta automática
+            if (preferredModel === "auto" || !preferredModel.startsWith("gemini-")) {
                 preferredModel = "";
-                localStorage.removeItem('gemini_model');
             }
 
             if (!apiKey) {
@@ -1436,7 +1480,7 @@
             }
 
             document.getElementById('run-ai-btn').disabled = true;
-            document.getElementById('run-ai-btn').textContent = `⚡ Iniciando extração...`;
+            document.getElementById('run-ai-btn').textContent = `⚡ Identificando modelos disponíveis...`;
 
             try {
                 const prompt = buildEnglishPrompt();
@@ -1452,81 +1496,80 @@
                 });
                 partsPayload.push({ text: prompt });
 
-                // Constrói fila: modelo preferido do usuário primeiro, depois fallbacks
+                // 1. Descobre modelos disponíveis para esta chave específica
+                const discovered = await discoverAvailableGeminiModels(apiKey);
+
+                // 2. Monta fila inteligente de candidatos
                 const candidateList = [];
-                if (preferredModel && !candidateList.includes(preferredModel)) {
-                    candidateList.push(preferredModel);
-                }
-                GEMINI_MULTIMODAL_MODELS.forEach(m => {
-                    if (!candidateList.includes(m)) candidateList.push(m);
-                });
+                if (preferredModel) candidateList.push(preferredModel);
+                discovered.forEach(m => { if (!candidateList.includes(m)) candidateList.push(m); });
+                GEMINI_MULTIMODAL_MODELS.forEach(m => { if (!candidateList.includes(m)) candidateList.push(m); });
 
                 let response = null;
-                let lastError = null;
                 let success = false;
+                const allErrors = [];
 
-                for (let mi = 0; mi < candidateList.length && !success; mi++) {
-                    const currentModel = candidateList[mi];
-                    const maxAttempts = 3;
-                    let delay = 2000;
+                outer: for (const currentModel of candidateList) {
+                    for (const apiVer of GEMINI_API_VERSIONS) {
+                        let delay = 2000;
+                        for (let attempt = 1; attempt <= 3; attempt++) {
+                            try {
+                                document.getElementById('run-ai-btn').textContent =
+                                    `⚡ Analisando (${currentModel} [${apiVer}])...`;
 
-                    for (let attempt = 1; attempt <= maxAttempts && !success; attempt++) {
-                        try {
-                            document.getElementById('run-ai-btn').textContent = `⚡ Analisando (${currentModel})${attempt > 1 ? ' tentativa ' + attempt : ''}...`;
+                                const requestBody = {
+                                    contents: [{ parts: partsPayload }],
+                                    generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
+                                };
 
-                            const requestBody = {
-                                contents: [{ parts: partsPayload }],
-                                generationConfig: {
-                                    temperature: 0.1,
-                                    maxOutputTokens: 8192
+                                // Suporte duplo: URL query + header x-goog-api-key (exigido para chaves AQ.)
+                                response = await fetch(
+                                    `https://generativelanguage.googleapis.com/${apiVer}/models/${currentModel}:generateContent?key=${apiKey}`,
+                                    {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'x-goog-api-key': apiKey
+                                        },
+                                        body: JSON.stringify(requestBody)
+                                    }
+                                );
+
+                                if (response.status === 429 || response.status === 503) {
+                                    document.getElementById('run-ai-btn').textContent = `⏳ Servidor ocupado (${response.status}). Aguardando ${Math.round(delay/1000)}s...`;
+                                    await new Promise(r => setTimeout(r, delay));
+                                    delay = Math.min(delay * 2, 8000);
+                                    continue; // retry
                                 }
-                            };
 
-                            response = await fetch(
-                                `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`,
-                                {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(requestBody)
+                                if (response.status === 404) {
+                                    allErrors.push(`${currentModel}[${apiVer}]: 404 não disponível`);
+                                    break; // próxima apiVer
                                 }
-                            );
 
-                            if (response.status === 503 || response.status === 429) {
-                                lastError = new Error(`Servidor sobrecarregado (${response.status}).`);
-                                document.getElementById('run-ai-btn').textContent = `⏳ Aguardando ${Math.round(delay/1000)}s (${currentModel})...`;
-                                await new Promise(r => setTimeout(r, delay));
-                                delay = Math.min(delay * 2, 8000);
-                                continue;
-                            }
+                                if (!response.ok) {
+                                    const errText = await response.text();
+                                    let shortErr = errText.substring(0, 200);
+                                    try { shortErr = JSON.parse(errText)?.error?.message || shortErr; } catch(e) {}
+                                    allErrors.push(`${currentModel}[${apiVer}]: Erro ${response.status} — ${shortErr}`);
+                                    console.warn(`[${currentModel}][${apiVer}] ${response.status}:`, errText);
+                                    break; // próxima apiVer
+                                }
 
-                            if (response.status === 404) {
-                                lastError = new Error(`Modelo ${currentModel} não disponível na sua chave API.`);
-                                console.info(`${currentModel}: 404 — pulando para o próximo modelo.`);
-                                break; // próximo modelo
-                            }
+                                success = true;
+                                break outer; // Sucesso!
 
-                            if (!response.ok) {
-                                const errText = await response.text();
-                                lastError = new Error(`Erro ${response.status} (${currentModel}): ${errText.substring(0, 200)}`);
-                                console.warn(`Erro ${response.status}:`, errText);
-                                break; // próximo modelo
-                            }
-
-                            success = true;
-
-                        } catch (netErr) {
-                            lastError = netErr;
-                            console.warn(`Erro de rede (${currentModel}):`, netErr.message);
-                            if (attempt < maxAttempts) {
-                                await new Promise(r => setTimeout(r, delay));
-                                delay = Math.min(delay * 2, 8000);
+                            } catch (netErr) {
+                                allErrors.push(`${currentModel}[${apiVer}]: Erro de rede — ${netErr.message}`);
+                                if (attempt < 3) await new Promise(r => setTimeout(r, delay));
                             }
                         }
                     }
                 }
 
                 if (!success || !response || !response.ok) {
-                    throw lastError || new Error("Nenhum modelo Gemini disponível. Verifique sua chave API em ⚙️ Configurações.");
+                    const summary = allErrors.slice(0, 6).join('\n');
+                    throw new Error(`Nenhum modelo Gemini funcionou.\n\nTentativas:\n${summary}\n\nVerifique sua chave API em ⚙️ Configurações.`);
                 }
 
                 const result = await response.json();
