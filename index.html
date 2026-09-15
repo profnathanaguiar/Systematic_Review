@@ -589,7 +589,7 @@
 <body>
 
     <!-- Version Badge -->
-    <div class="version-badge">Mark 21</div>
+    <div class="version-badge">Mark 22</div>
 
     <!-- Header -->
     <header>
@@ -644,7 +644,8 @@
                 <div class="filter-box">
                     <input type="text" id="search-input" placeholder="Buscar por título ou autor..." oninput="renderStudiesList()">
                     <select id="sort-select" onchange="renderStudiesList()" style="width: 160px;">
-                        <option value="upload-asc">📥 Ordem de Upload</option>
+                        <option value="upload-asc">📥 Upload (Antigo→Novo)</option>
+                        <option value="upload-desc">📤 Upload (Novo→Antigo)</option>
                         <option value="title-asc">Título (A-Z)</option>
                         <option value="title-desc">Título (Z-A)</option>
                         <option value="author-asc">Autor (A-Z)</option>
@@ -1184,6 +1185,11 @@
                     const ia = (a.uploadIndex !== undefined) ? a.uploadIndex : 0;
                     const ib = (b.uploadIndex !== undefined) ? b.uploadIndex : 0;
                     return ia - ib;
+                }
+                if (sortMode === 'upload-desc') {
+                    const ia = (a.uploadIndex !== undefined) ? a.uploadIndex : 0;
+                    const ib = (b.uploadIndex !== undefined) ? b.uploadIndex : 0;
+                    return ib - ia;
                 }
                 if (sortMode === 'author-asc' || sortMode === 'author-desc') {
                     // Extrai o sobrenome do subtitle (formato "Sobrenome, Ano" ou "Sobrenome et al., Ano")
