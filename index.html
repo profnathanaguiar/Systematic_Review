@@ -589,7 +589,7 @@
 <body>
 
     <!-- Version Badge -->
-    <div class="version-badge">Mark 20</div>
+    <div class="version-badge">Mark 21</div>
 
     <!-- Header -->
     <header>
@@ -643,9 +643,12 @@
 
                 <div class="filter-box">
                     <input type="text" id="search-input" placeholder="Buscar por título ou autor..." oninput="renderStudiesList()">
-                    <select id="sort-select" onchange="renderStudiesList()" style="width: 140px;">
+                    <select id="sort-select" onchange="renderStudiesList()" style="width: 160px;">
+                        <option value="upload-asc">📥 Ordem de Upload</option>
                         <option value="title-asc">Título (A-Z)</option>
                         <option value="title-desc">Título (Z-A)</option>
+                        <option value="author-asc">Autor (A-Z)</option>
+                        <option value="author-desc">Autor (Z-A)</option>
                         <option value="conflicts">Conflitos Primeiro</option>
                     </select>
                 </div>
@@ -1061,6 +1064,7 @@
                         id: studyId,
                         title: file.name.replace(/\.[^/.]+$/, ""),
                         subtitle: "Aguardando extração...",
+                        uploadIndex: studies.length,
                         files: [fileObj],
                         activeFileId: fileId,
                         extractions: { R1: null, R2: null, R3: null }
@@ -1176,6 +1180,22 @@
             filtered.sort((a, b) => {
                 if (sortMode === 'title-asc') return a.title.localeCompare(b.title);
                 if (sortMode === 'title-desc') return b.title.localeCompare(a.title);
+                if (sortMode === 'upload-asc') {
+                    const ia = (a.uploadIndex !== undefined) ? a.uploadIndex : 0;
+                    const ib = (b.uploadIndex !== undefined) ? b.uploadIndex : 0;
+                    return ia - ib;
+                }
+                if (sortMode === 'author-asc' || sortMode === 'author-desc') {
+                    // Extrai o sobrenome do subtitle (formato "Sobrenome, Ano" ou "Sobrenome et al., Ano")
+                    const authorA = (a.subtitle && a.subtitle !== 'Aguardando extração...' && a.subtitle !== 'Autor, Ano')
+                        ? a.subtitle.split(',')[0].trim().toLowerCase()
+                        : a.title.toLowerCase();
+                    const authorB = (b.subtitle && b.subtitle !== 'Aguardando extração...' && b.subtitle !== 'Autor, Ano')
+                        ? b.subtitle.split(',')[0].trim().toLowerCase()
+                        : b.title.toLowerCase();
+                    const cmp = authorA.localeCompare(authorB);
+                    return sortMode === 'author-asc' ? cmp : -cmp;
+                }
                 if (sortMode === 'conflicts') {
                     const cA = countStudyConflicts(a);
                     const cB = countStudyConflicts(b);
@@ -1677,34 +1697,80 @@
                     "valor": "Full official article title",
                     "status": "success",
                     "status_detail": "",
-                    "exact_quote": "Official article title verbatim"
+                    "exact_quote": "Official article title verbatim",
+                    "location_hint": ""
                 }
             };
 
             variablesSchema.forEach(v => {
                 jsonStructure[v.key] = {
-                    "valor": "Extracted data string strictly in English (or exactly 'could not be found' if not explicitly stated)",
-                    "status": "success / supplementary / absent",
-                    "status_detail": "If supplementary, specify file/table. If absent/not applicable, explain briefly.",
-                    "exact_quote": "MANDATORY: For numeric/statistical fields, the verbatim sentence or table cell containing the exact numbers (e.g. '0.7 ± 1.7'). For qualitative fields, an exact 8-to-15 word continuous sentence from Methods, Results, Tables, or Figures. NEVER quote DOIs, journal headers, received/accepted dates, or volume/page numbers."
+                    "valor": "Extracted data string strictly in English. For numeric pain/outcome fields: the exact number(s) extracted from text, table, or graph. Use 'graph-digitized: ~X.X ± Y.Y' if extracted from a bar/line chart (see RULE 6). Use 'separate data required' if the sample is mixed (see RULE 5). Use 'could not be found' only if genuinely absent.",
+                    "status": "success | supplementary | graph-digitized | separate-data-required | absent",
+                    "status_detail": "If supplementary: cite file name or table label. If graph-digitized: describe the graph (e.g. 'Figure 2, bar chart, post-intervention'). If separate-data-required: explain why (mixed cancer types, mixed treatment phases). If absent: explain briefly.",
+                    "exact_quote": "MANDATORY for text/table data: verbatim sentence or table cell with the exact numbers. For graph-digitized data: describe axis labels and estimated value. Leave empty only if status='separate-data-required' or 'absent'.",
+                    "location_hint": "MANDATORY for all numeric/statistical fields: specify exactly WHERE in the article this was found, e.g. 'Table 2, row Exercise Group, Baseline column', 'Figure 3, post-intervention bar', 'Results section paragraph 3'. If not found in text, indicate 'See Figure X' or 'See Table Y'."
                 };
             });
 
             return `
-YOU ARE A SENIOR CLINICAL SYSTEMATIC REVIEWER EXTRACTING DATA FOR A HIGH-IMPACT SYSTEMATIC REVIEW.
-YOU HAVE BEEN PROVIDED WITH MULTIPLE FILES (MAIN PDF ARTICLE AND SUPPLEMENTARY MATERIAL). YOU MUST ANALYZE ALL FILES (TEXT, TABLES, FIGURES, AND SUPPLEMENTS) WITH ABSOLUTE CLINICAL PRECISION.
-ALL OUTPUT VALUES, STATUS DETAILS, AND FIELD CONTENT MUST BE FORMATTED STRICTLY IN ENGLISH.
+YOU ARE A SENIOR CLINICAL SYSTEMATIC REVIEWER EXTRACTING DATA FOR A HIGH-IMPACT SYSTEMATIC REVIEW ON EXERCISE AND PAIN IN BREAST CANCER.
+YOU HAVE BEEN PROVIDED WITH MULTIPLE FILES (MAIN PDF ARTICLE AND SUPPLEMENTARY MATERIAL). ANALYZE ALL FILES WITH ABSOLUTE CLINICAL PRECISION.
+ALL OUTPUT VALUES, STATUS_DETAIL, LOCATION_HINT, AND EXACT_QUOTE MUST BE IN ENGLISH.
 
-🚨 ABSOLUTE ZERO-TOLERANCE RULES AGAINST METADATA CONFUSION & ABSTRACT EXCLUSION:
-1. STRICT ABSENCE RULE ("could not be found"): IF A SPECIFIC DATA POINT OR NUMERIC VALUE IS NOT EXPLICITLY REPORTED IN THE ARTICLE BODY, TABLES, FIGURES, OR SUPPLEMENTARY FILES, SET "valor" TO EXACTLY "could not be found", "status" TO "absent", AND "exact_quote" TO "". NEVER INVENT, INFER, OR GUESS VALUES.
-2. METADATA PROHIBITION: NEVER CONFUSE CLINICAL DATA WITH JOURNAL METADATA — DOI NUMBERS (doi.org), SUBMISSION/PUBLICATION DATES (Received:, Accepted:, Published online), VOLUME/PAGE NUMBERS, OR JOURNAL HEADER TITLES (e.g. Springer, Original Article).
-3. ABSTRACT EXCLUSION (PAGE 1): IT IS STRICTLY FORBIDDEN TO EXTRACT ANY DATA, NUMBERS, OR QUOTES FROM THE ABSTRACT / RESUMO PARAGRAPH ON PAGE 1. YOU MUST ANALYZE THE MAIN BODY (Introduction, Methods, Results, Discussion), TABLES, FIGURES, AND SUPPLEMENTARY MATERIALS ONLY.
-4. ANCHORED LITERAL QUOTES (exact_quote):
-   - NUMERIC & STATISTICAL FIELDS (Mean, SD, N, p-values): "exact_quote" MUST be the verbatim sentence or table cell containing the exact statistical numbers (e.g. "0.7 ± 1.7", "N = 42").
-   - QUALITATIVE FIELDS: "exact_quote" MUST be a continuous literal sentence of 8 to 15 words copied exactly from the source text.
-5. DO NOT use isolated short numbers (e.g. "17", "07") as evidence. Quotes must contain sufficient surrounding context.
+══════════════════════════════════════════════════════════
+ 🚨 EXTRACTION RULES — READ ALL BEFORE EXTRACTING
+══════════════════════════════════════════════════════════
 
-Return STRICTLY a JSON object following this schema:
+RULE 1 — ABSTRACT EXCLUSION (STRICT):
+   IT IS STRICTLY FORBIDDEN to extract any data, numbers, or quotes from the Abstract / Resumo section on page 1.
+   Extract only from: Introduction, Methods, Results, Discussion, Tables, Figures, and Supplementary files.
+
+RULE 2 — METADATA PROHIBITION:
+   NEVER confuse clinical data with journal metadata: DOI numbers, submission/publication dates (Received:, Accepted:),
+   volume/page numbers, journal header titles (e.g., Springer, Original Article, ISSN).
+
+RULE 3 — STRICT ABSENCE ("could not be found"):
+   Only use "could not be found" when the data point is genuinely absent from ALL text, tables, figures, and supplements.
+   NEVER invent, infer, or guess values.
+
+RULE 4 — ANCHORED LITERAL QUOTES (exact_quote):
+   • NUMERIC/STATISTICAL FIELDS (Mean, SD, N, p-values, ICC): exact_quote MUST be the verbatim sentence or table cell
+     containing the exact statistical numbers, e.g., "mean pain VAS: 4.2 ± 1.3 at baseline".
+   • QUALITATIVE FIELDS: exact_quote MUST be a continuous literal sentence of 8–15 words from the text.
+   • DO NOT use isolated short numbers (e.g., "17", "07") without surrounding context.
+
+RULE 5 — SEPARATE DATA REQUIRED (MIXED SAMPLE):
+   If the study includes a MIXED sample that combines breast cancer patients receiving CHEMOTHERAPY with patients undergoing
+   OTHER treatment types (radiotherapy, immunotherapy, hormone therapy) OR other cancer types, AND the pain/outcome data
+   is NOT reported separately for the chemotherapy-only breast cancer subgroup:
+   • Set "valor" = "separate data required"
+   • Set "status" = "separate-data-required"
+   • Set "status_detail" = brief explanation of the mixed groups (e.g., "Sample includes breast cancer patients on chemo,
+     radio, and hormone therapy combined; pain data not separated by treatment type")
+   • Set "exact_quote" = ""
+   This means a contact request will be sent to the study authors for disaggregated data.
+
+RULE 6 — GRAPH DIGITIZATION (Web Plot Digitizer):
+   If pain/outcome data are presented ONLY in bar charts, line graphs, or forest plots (not in text or tables):
+   • READ the graph axes carefully (Y-axis label, scale, and units; X-axis groups/timepoints).
+   • ESTIMATE the bar height or point position as accurately as possible.
+   • If error bars are present, estimate the SD or 95% CI span.
+   • Set "valor" = "graph-digitized: ~[estimated mean] ± [estimated SD or 95% CI]"
+     e.g., "graph-digitized: ~4.2 ± 1.1 (VAS, Figure 2)"
+   • Set "status" = "graph-digitized"
+   • Set "status_detail" = "Digitized from [Figure N]: [description of graph type, axes, and groups]"
+   • Set "exact_quote" = "Y-axis: [label and scale]; X-axis: [groups]; Estimated value: [group] ≈ [value]"
+   • MANDATORY: Also fill "location_hint" with "Figure N — [graph description]"
+
+RULE 7 — LOCATION HINT (MANDATORY for numeric fields):
+   For ALL pain/outcome numeric fields (baseline, post-intervention, delta, SD, N):
+   Even if you cannot extract the exact number, fill "location_hint" with where the reader should look:
+   e.g., "Table 2, Baseline Pain column, Exercise Group row" or "Figure 3 — post-intervention bar chart".
+   This allows the reviewer to navigate directly to the source in the PDF viewer.
+
+══════════════════════════════════════════════════════════
+
+Return STRICTLY a JSON object following this schema (no markdown code blocks):
 ${JSON.stringify(jsonStructure, null, 2)}
 
 Specific fields to extract:
@@ -1755,12 +1821,13 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                     const val = activeExt && activeExt[v.key] ? activeExt[v.key].valor : "";
                     const quote = activeExt && activeExt[v.key] ? activeExt[v.key].exact_quote : "";
                     const status = activeExt && activeExt[v.key] ? activeExt[v.key].status : "";
+                    const locationHint = activeExt && activeExt[v.key] ? (activeExt[v.key].location_hint || "") : "";
 
                     card.innerHTML += `
                         <div class="reviewer-block">
                             <div class="reviewer-tag"><span>Sua Extração (${activeReviewer})</span></div>
                             <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, '${activeReviewer}')">${escapeHtml(val)}</textarea>
-                            ${renderCitationButton(quote, status, v.key, val)}
+                            ${renderCitationButton(quote, status, v.key, val, locationHint)}
                         </div>
                     `;
                 } else {
@@ -1768,18 +1835,20 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                     const quote2 = extR2 && extR2[v.key] ? extR2[v.key].exact_quote : "";
                     const status1 = extR1 && extR1[v.key] ? extR1[v.key].status : "";
                     const status2 = extR2 && extR2[v.key] ? extR2[v.key].status : "";
+                    const locationHint1 = extR1 && extR1[v.key] ? (extR1[v.key].location_hint || "") : "";
+                    const locationHint2 = extR2 && extR2[v.key] ? (extR2[v.key].location_hint || "") : "";
 
                     card.innerHTML += `
                         <div class="reviewer-block" style="border-left: 3px solid #818cf8;">
                             <div class="reviewer-tag"><span>Revisor 1 (Principal)</span></div>
                             <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, 'R1')">${escapeHtml(val1)}</textarea>
-                            ${renderCitationButton(quote1, status1, v.key, val1)}
+                            ${renderCitationButton(quote1, status1, v.key, val1, locationHint1)}
                         </div>
 
                         <div class="reviewer-block" style="border-left: 3px solid #34d399;">
                             <div class="reviewer-tag"><span>Revisor 2 (Vitor Andrade)</span></div>
                             <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, 'R2')">${escapeHtml(val2)}</textarea>
-                            ${renderCitationButton(quote2, status2, v.key, val2)}
+                            ${renderCitationButton(quote2, status2, v.key, val2, locationHint2)}
                         </div>
                     `;
                 }
@@ -1788,9 +1857,26 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
             });
         }
 
-        function renderCitationButton(quote, status, varKey, valor) {
-            const displayQuote = (quote && quote.length >= 3) ? quote.substring(0, 55) + "..." : (status ? `Ver no PDF (${status})` : "Localizar no PDF");
-            return `<div class="citation-box" onclick="focusOnQuote('${escapeJs(quote)}', '${varKey}', '${escapeJs(valor)}')">🔍 Local no PDF: "${escapeHtml(displayQuote)}"</div>`;
+        function renderCitationButton(quote, status, varKey, valor, locationHint) {
+            // Separate-data-required: mostre badge de alerta, sem link de PDF
+            if (status === 'separate-data-required') {
+                return `<div class="citation-box" style="background:rgba(251,191,36,0.15); border-color:rgba(251,191,36,0.4); color:#fbbf24; cursor:default;">
+                    ✉️ Contatar autores — amostra mista (dados separados necessários)
+                </div>`;
+            }
+            // Graph-digitized: badge especial + link para localizar figura no PDF
+            if (status === 'graph-digitized') {
+                const hint = locationHint || quote || '';
+                return `<div class="citation-box" style="background:rgba(16,185,129,0.12); border-color:rgba(16,185,129,0.35); color:#34d399; cursor:pointer;" onclick="focusOnQuote('${escapeJs(hint)}', '${varKey}', '${escapeJs(valor)}')">
+                    📊 Digitalizado de gráfico — ${escapeHtml((locationHint || 'Ver figura').substring(0, 60))}
+                </div>`;
+            }
+            // Normal: usa quote se disponível, fallback para locationHint
+            const searchTarget = (quote && quote.length >= 3) ? quote : (locationHint || '');
+            const displayText = (quote && quote.length >= 3)
+                ? '🔍 Local no PDF: "' + escapeHtml(quote.substring(0, 55)) + '..."'
+                : (locationHint ? '📍 ' + escapeHtml(locationHint.substring(0, 70)) : '🔍 Localizar no PDF');
+            return `<div class="citation-box" onclick="focusOnQuote('${escapeJs(searchTarget)}', '${varKey}', '${escapeJs(valor)}')">${displayText}</div>`;
         }
 
         function updateManualValue(varKey, newVal, reviewer) {
