@@ -433,25 +433,26 @@
 
         /* Mouse Selection Override */
         .textLayer ::selection {
-            background: rgba(59, 130, 246, 0.45) !important;
+            background: rgba(59, 130, 246, 0.5) !important;
             color: transparent !important;
         }
 
         .textLayer ::-moz-selection {
-            background: rgba(59, 130, 246, 0.45) !important;
+            background: rgba(59, 130, 246, 0.5) !important;
             color: transparent !important;
         }
 
-        /* Ultra-High Contrast Active Focused Quote Highlight (100% Pitch-Black Readable Text!) */
+        /* High-Contrast Active Focused Quote Highlight: preserva o texto original nítido do canvas e permite seleção/cópia direta */
         .textLayer span.highlight-active {
-            background-color: #fde047 !important; /* Bright golden yellow */
-            color: #000000 !important; /* Pitch black crisp readable font */
-            opacity: 0.98 !important;
-            mix-blend-mode: normal !important;
-            outline: 3px solid #ca8a04 !important;
-            box-shadow: 0 0 14px rgba(250, 204, 21, 0.95) !important;
-            z-index: 50 !important;
-            cursor: pointer;
+            background-color: rgba(253, 224, 71, 0.6) !important; /* Amarelo ouro translúcido */
+            color: transparent !important; /* Mantém a renderização vetorial original do canvas sem distorcer! */
+            mix-blend-mode: multiply !important;
+            border-radius: 2px !important;
+            box-shadow: 0 0 0 1.5px #eab308, 0 2px 8px rgba(234, 179, 8, 0.35) !important;
+            z-index: 20 !important;
+            cursor: text !important;
+            user-select: text !important;
+            -webkit-user-select: text !important;
         }
 
         /* Right Column: Pair Extraction Panel */
@@ -589,7 +590,7 @@
 <body>
 
     <!-- Version Badge -->
-    <div class="version-badge">Mark 22</div>
+    <div class="version-badge">Mark 23</div>
 
     <!-- Header -->
     <header>
@@ -643,9 +644,9 @@
 
                 <div class="filter-box">
                     <input type="text" id="search-input" placeholder="Buscar por título ou autor..." oninput="renderStudiesList()">
-                    <select id="sort-select" onchange="renderStudiesList()" style="width: 160px;">
-                        <option value="upload-asc">📥 Upload (Antigo→Novo)</option>
+                    <select id="sort-select" onchange="handleSortChange(this.value)" style="width: 160px;">
                         <option value="upload-desc">📤 Upload (Novo→Antigo)</option>
+                        <option value="upload-asc">📥 Upload (Antigo→Novo)</option>
                         <option value="title-asc">Título (A-Z)</option>
                         <option value="title-desc">Título (Z-A)</option>
                         <option value="author-asc">Autor (A-Z)</option>
@@ -785,13 +786,14 @@
             { key: "Author_Year", label: "Author Year", prompt: "First author last name and publication year (Format: 'LastName, Year')." },
             { key: "Study_Title", label: "Study Title", prompt: "Full title of the scientific study/article." },
             { key: "File", label: "File", prompt: "Filename of the PDF (e.g. author_year.pdf)." },
-            { key: "Country", label: "Country", prompt: "Country where the study was conducted or where participants were recruited." },
+            { key: "Country", label: "Country", prompt: "Country where the clinical trial and patient recruitment was actually conducted (typically stated at the beginning of the Methods section). DO NOT take corresponding author country unless verified as study site." },
             { key: "Trial_Registry", label: "Trial Registry", prompt: "Trial registration number (e.g. NCT02348749). Enter 'Not registered' if none." },
             { key: "Design", label: "Design", prompt: "Study methodological design (e.g. randomized controlled trial, crossover, etc.)." },
             { key: "N_Arms", label: "N Arms", prompt: "Number of intervention arms/groups in the study (integer)." },
             { key: "Conflict_Interest", label: "Conflict Interest", prompt: "Is there a conflict of interest declaration? ('Yes' or 'No')." },
+            { key: "Funding", label: "Funding", prompt: "Funding sources, grants, or sponsor reported for the study. State agency/grant or 'None declared'." },
             { key: "Total_N_Randomized", label: "Total N Randomized", prompt: "Total number of participants randomized in the study." },
-            { key: "Separete_Data", label: "Separete Data", prompt: "Are clinical outcomes presented separately per arm/group? ('Yes' or 'No')." },
+            { key: "Separete_Data", label: "Separete Data", prompt: "Are pain outcomes reported exclusively for breast cancer patients undergoing chemotherapy? If sample mixes chemotherapy with other treatments (radiation, hormone therapy) or other cancers without separate data, state 'Separate data required' (meaning authors must be contacted by email). Otherwise 'Yes'." },
             { key: "Exercise_1_Group_N", label: "Exercise 1 Group N", prompt: "Sample size (N) in Exercise Group 1 (main exercise group) at baseline/post." },
             { key: "Exercise_2_Group_N", label: "Exercise 2 Group N", prompt: "Sample size (N) in Exercise Group 2 (if applicable). Else, 'Not applicable'." },
             { key: "Control_Group_N", label: "Control Group N", prompt: "Sample size (N) in Control/Comparator Group." },
@@ -913,7 +915,17 @@
         function loadSavedSchema() {
             const saved = localStorage.getItem('custom_variables_schema');
             if (saved) {
-                try { variablesSchema = JSON.parse(saved); } catch(e){}
+                try {
+                    let parsed = JSON.parse(saved);
+                    // Garante que Funding esteja presente logo após Conflict_Interest se ausente
+                    if (!parsed.some(v => v.key === 'Funding')) {
+                        const idx = parsed.findIndex(v => v.key === 'Conflict_Interest');
+                        const fundingVar = { key: "Funding", label: "Funding", prompt: "Funding sources, grants, or sponsor reported for the study. State agency/grant or 'None declared'." };
+                        if (idx !== -1) parsed.splice(idx + 1, 0, fundingVar);
+                        else parsed.push(fundingVar);
+                    }
+                    variablesSchema = parsed;
+                } catch(e){}
             }
         }
 
@@ -949,7 +961,13 @@
                 modelSelect.value = "auto";
             }
             document.getElementById('cloud-room-input').value = savedRoom;
-        }
+
+            // Restaura ordem de ordenação de artigos preferida pelo usuário
+            const savedSort = localStorage.getItem('preferred_sort_mode') || "upload-desc";
+            const sortSelect = document.getElementById('sort-select');
+            if (sortSelect) {
+                sortSelect.value = savedSort;
+            }
 
         function saveSettings() {
             const key = document.getElementById('api-key-input').value.trim();
@@ -1065,7 +1083,7 @@
                         id: studyId,
                         title: file.name.replace(/\.[^/.]+$/, ""),
                         subtitle: "Aguardando extração...",
-                        uploadIndex: studies.length,
+                        uploadIndex: Date.now(),
                         files: [fileObj],
                         activeFileId: fileId,
                         extractions: { R1: null, R2: null, R3: null }
@@ -1167,6 +1185,11 @@
                 uint8Array[i] = raw.charCodeAt(i);
             }
             return uint8Array;
+        }
+
+        function handleSortChange(mode) {
+            localStorage.setItem('preferred_sort_mode', mode);
+            renderStudiesList();
         }
 
         function renderStudiesList() {
@@ -1518,14 +1541,27 @@
                 const prompt = buildEnglishPrompt();
 
                 const partsPayload = [];
-                study.files.forEach(f => {
+
+                // Notificação de contexto multi-documento para que a IA explore TODOS os arquivos
+                const fileSummary = study.files.map((f, i) =>
+                    `Document ${i + 1}: "${f.name}" (${f.isPrimary ? 'Main Manuscript' : 'Supplementary File / Appendix / Protocol'})`
+                ).join('\n');
+
+                partsPayload.push({
+                    text: `CLINICAL TRIAL MULTI-DOCUMENT DATA EXTRACTION TASK:\nYou are provided with ${study.files.length} document(s) for this clinical study:\n${fileSummary}\n\nCRITICAL INSTRUCTION: You MUST search BOTH the main manuscript AND all supplementary files / appendices. Often pain outcome tables, protocol details, adherence, and secondary measurements are located ONLY in the supplementary material.`
+                });
+
+                study.files.forEach((f, idx) => {
                     if (!f.base64) return;
                     const mime = resolveGeminiMimeType(f);
                     if (mime) {
                         const cleanData = f.base64.includes(',') ? f.base64.split(',')[1] : f.base64;
+                        partsPayload.push({ text: `\n=== BEGIN OF DOCUMENT ${idx + 1} [Filename: "${f.name}"] (${f.isPrimary ? 'MAIN ARTICLE' : 'SUPPLEMENTARY MATERIAL'}) ===\n` });
                         partsPayload.push({ inlineData: { mimeType: mime, data: cleanData } });
+                        partsPayload.push({ text: `\n=== END OF DOCUMENT ${idx + 1} [Filename: "${f.name}"] ===\n` });
                     }
                 });
+
                 partsPayload.push({ text: prompt });
 
                 // 1. Descobre modelos disponíveis para esta chave específica
@@ -1652,39 +1688,103 @@
             let text = rawText.trim();
             // Remove possíveis blocos de código markdown
             text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-            
-            // 1. Tenta parse direto
+
+            // 1. Tenta parse direto imediato
             try {
                 return JSON.parse(text);
-            } catch(e1) {
-                // 2. Extrai substring entre o primeiro { e o último }
-                const firstBrace = text.indexOf('{');
-                const lastBrace = text.lastIndexOf('}');
-                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                    try {
-                        return JSON.parse(text.substring(firstBrace, lastBrace + 1));
-                    } catch(e2) {}
-                }
-                
-                // 3. Auto-reparo de JSON truncado (fecha aspas e chaves pendentes)
-                let repaired = text;
-                if (firstBrace !== -1) repaired = repaired.substring(firstBrace);
-                
-                const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
-                if (quoteCount % 2 !== 0) repaired += '"';
-                
-                const openBraces = (repaired.match(/\{/g) || []).length;
-                const closeBraces = (repaired.match(/\}/g) || []).length;
-                for (let i = 0; i < (openBraces - closeBraces); i++) {
-                    repaired += '}';
-                }
-                
-                try {
-                    return JSON.parse(repaired);
-                } catch(e3) {
-                    throw new Error("Erro na estrutura do JSON retornado pela IA (" + e1.message + ")");
+            } catch(e1) {}
+
+            // 2. Extrai substring entre o primeiro { e o último }
+            const firstBrace = text.indexOf('{');
+            const lastBrace = text.lastIndexOf('}');
+            let sub = (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace)
+                ? text.substring(firstBrace, lastBrace + 1)
+                : text;
+
+            try {
+                return JSON.parse(sub);
+            } catch(e2) {}
+
+            // 3. Limpeza sintática profunda (comentários, trailing commas, aspas simples, propriedades sem aspas)
+            let cleaned = sub;
+            // Remove comentários inline // e em bloco /* */
+            cleaned = cleaned.replace(/\/\/.*$/gm, '');
+            cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '');
+            // Remove trailing commas antes de fechar chaves ou colchetes (ex: "campo": "valor", \n })
+            cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+            // Corrige chaves de propriedades sem aspas duplas (ex: { author_year: ou , author_year:)
+            cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+            // Corrige chaves com aspas simples (ex: 'author_year':)
+            cleaned = cleaned.replace(/([{,]\s*)'([^']+)'\s*:/g, '$1"$2":');
+
+            // Substitui quebras de linha cruas dentro de strings literais entre aspas
+            cleaned = cleaned.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (match) => {
+                return match.replace(/\r?\n/g, '\\n').replace(/\t/g, ' ');
+            });
+
+            // Auto-reparo de fechamento se o JSON tiver sido truncado pela API
+            const quoteCount = (cleaned.match(/(?<!\\)"/g) || []).length;
+            if (quoteCount % 2 !== 0) cleaned += '"';
+
+            const openBraces = (cleaned.match(/\{/g) || []).length;
+            const closeBraces = (cleaned.match(/\}/g) || []).length;
+            for (let i = 0; i < (openBraces - closeBraces); i++) {
+                cleaned += '}';
+            }
+
+            try {
+                return JSON.parse(cleaned);
+            } catch(e3) {}
+
+            // 4. FALLBACK RESILIENTE POR REGEX: Extrai cada objeto/variável independentemente
+            // Garante que mesmo se houver erro de sintaxe em um campo específico (ex: linha 7 coluna 5),
+            // nenhum dado seja perdido e o usuário NUNCA receba tela de erro!
+            console.warn("JSON.parse falhou após reparos; ativando extração por fallback regex resiliente.");
+            const fallbackResult = {};
+            const keysToFind = ['article_title', ...variablesSchema.map(v => v.key)];
+
+            for (const key of keysToFind) {
+                // Procura o bloco da variável com regex tolerante a falhas
+                const blockRegex = new RegExp(`["']?${key}["']?\\s*:\\s*\\{([^{}]+)\\}`, 'i');
+                const match = cleaned.match(blockRegex) || text.match(blockRegex);
+                if (match) {
+                    const blockContent = match[1];
+                    const extractSubField = (fieldName) => {
+                        const fMatch = blockContent.match(new RegExp(`["']?${fieldName}["']?\\s*:\\s*["']?([^"',}\n]+|"[^"]*"|'[^']*')`, 'i'));
+                        if (!fMatch) return "";
+                        let val = fMatch[1].trim();
+                        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                            val = val.substring(1, val.length - 1);
+                        }
+                        return val;
+                    };
+
+                    fallbackResult[key] = {
+                        valor: extractSubField('valor') || 'could not be found',
+                        status: extractSubField('status') || 'absent',
+                        status_detail: extractSubField('status_detail') || '',
+                        exact_quote: extractSubField('exact_quote') || '',
+                        location_hint: extractSubField('location_hint') || '',
+                        source_file: extractSubField('source_file') || ''
+                    };
+                } else {
+                    fallbackResult[key] = {
+                        valor: 'could not be found',
+                        status: 'absent',
+                        status_detail: '',
+                        exact_quote: '',
+                        location_hint: '',
+                        source_file: ''
+                    };
                 }
             }
+
+            const foundCount = Object.keys(fallbackResult).filter(k => fallbackResult[k].valor && fallbackResult[k].valor !== 'could not be found').length;
+            if (foundCount > 0) {
+                return fallbackResult;
+            }
+
+            throw new Error("Não foi possível interpretar os dados retornados pela IA. Tente executar a extração novamente.");
         }
 
         function resolveGeminiMimeType(fileObj) {
@@ -1704,79 +1804,96 @@
                     "status": "success",
                     "status_detail": "",
                     "exact_quote": "Official article title verbatim",
-                    "location_hint": ""
+                    "location_hint": "",
+                    "source_file": "Name of file where title is found"
                 }
             };
 
             variablesSchema.forEach(v => {
                 jsonStructure[v.key] = {
-                    "valor": "Extracted data string strictly in English. For numeric pain/outcome fields: the exact number(s) extracted from text, table, or graph. Use 'graph-digitized: ~X.X ± Y.Y' if extracted from a bar/line chart (see RULE 6). Use 'separate data required' if the sample is mixed (see RULE 5). Use 'could not be found' only if genuinely absent.",
+                    "valor": "Extracted data string strictly in English. For numeric pain fields: exact numbers (Mean ± SD) from text, table, or graph. Use 'graph-digitized: ~X.X ± Y.Y' if estimated from chart. Use 'separate data required' if chemotherapy breast cancer subgroup is not disaggregated. Use 'could not be found' if absent.",
                     "status": "success | supplementary | graph-digitized | separate-data-required | absent",
-                    "status_detail": "If supplementary: cite file name or table label. If graph-digitized: describe the graph (e.g. 'Figure 2, bar chart, post-intervention'). If separate-data-required: explain why (mixed cancer types, mixed treatment phases). If absent: explain briefly.",
-                    "exact_quote": "MANDATORY for text/table data: verbatim sentence or table cell with the exact numbers. For graph-digitized data: describe axis labels and estimated value. Leave empty only if status='separate-data-required' or 'absent'.",
-                    "location_hint": "MANDATORY for all numeric/statistical fields: specify exactly WHERE in the article this was found, e.g. 'Table 2, row Exercise Group, Baseline column', 'Figure 3, post-intervention bar', 'Results section paragraph 3'. If not found in text, indicate 'See Figure X' or 'See Table Y'."
+                    "status_detail": "If supplementary: cite file name and table/figure. If graph-digitized: specify graph axes and groups. If separate-data-required: explain mixed cohort. If absent: explain briefly.",
+                    "exact_quote": "Verbatim sentence or table cell with exact numbers. For graph-digitized: axis labels and estimated reading. Empty if absent/separate-data-required.",
+                    "location_hint": "WHERE to find this in the PDF (e.g. 'Table 2, row Pain VAS, column Intervention Post', 'Figure 2B bar', 'Methods section under Participants').",
+                    "source_file": "MANDATORY: Exact filename (e.g. main article PDF or supplementary PDF/protocol name) where this data point was identified."
                 };
             });
 
             return `
-YOU ARE A SENIOR CLINICAL SYSTEMATIC REVIEWER EXTRACTING DATA FOR A HIGH-IMPACT SYSTEMATIC REVIEW ON EXERCISE AND PAIN IN BREAST CANCER.
-YOU HAVE BEEN PROVIDED WITH MULTIPLE FILES (MAIN PDF ARTICLE AND SUPPLEMENTARY MATERIAL). ANALYZE ALL FILES WITH ABSOLUTE CLINICAL PRECISION.
-ALL OUTPUT VALUES, STATUS_DETAIL, LOCATION_HINT, AND EXACT_QUOTE MUST BE IN ENGLISH.
+YOU ARE A SENIOR CLINICAL SYSTEMATIC REVIEWER EXTRACTING TRIAL DATA FOR A META-ANALYSIS ON EXERCISE AND PAIN IN WOMEN WITH BREAST CANCER UNDERGOING CHEMOTHERAPY.
+YOU HAVE ACCESS TO ALL SUBMITTED FILES (MAIN MANUSCRIPT AND SUPPLEMENTARY FILES / APPENDICES). EXAMINE ALL FILES WITH METICULOUS SCIENTIFIC RIGOR.
+ALL OUTPUT MUST BE WRITTEN IN ENGLISH.
 
-══════════════════════════════════════════════════════════
- 🚨 EXTRACTION RULES — READ ALL BEFORE EXTRACTING
-══════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════════════════════════
+ 🚨 CLINICAL REVIEWER EXTRACTION PROTOCOL — READ ALL RULES CAREFULLY
+════════════════════════════════════════════════════════════════════════════
 
-RULE 1 — ABSTRACT EXCLUSION (STRICT):
-   IT IS STRICTLY FORBIDDEN to extract any data, numbers, or quotes from the Abstract / Resumo section on page 1.
-   Extract only from: Introduction, Methods, Results, Discussion, Tables, Figures, and Supplementary files.
+RULE 1 — ABSTRACT EXCLUSION (STRICT ZERO-TOLERANCE):
+   IT IS STRICTLY FORBIDDEN to extract data from the Abstract / Resumo on page 1.
+   Always extract from: Introduction, Methods, Results, Discussion, Tables, Figures, and Supplementary files.
 
 RULE 2 — METADATA PROHIBITION:
-   NEVER confuse clinical data with journal metadata: DOI numbers, submission/publication dates (Received:, Accepted:),
-   volume/page numbers, journal header titles (e.g., Springer, Original Article, ISSN).
+   NEVER confuse trial data with journal metadata: DOI numbers, submission/acceptance dates (Received:, Accepted:), volume/page numbers, or journal header lines.
 
-RULE 3 — STRICT ABSENCE ("could not be found"):
-   Only use "could not be found" when the data point is genuinely absent from ALL text, tables, figures, and supplements.
-   NEVER invent, infer, or guess values.
+RULE 3 — COUNTRY WHERE STUDY WAS CONDUCTED:
+   For "Country", identify the country where the clinical trial and patient recruitment ACTUALLY took place (typically described at the beginning of the Methods section under "Study design", "Participants", or "Settings").
+   DO NOT extract the corresponding author's affiliation country unless the text explicitly confirms patient recruitment occurred there.
 
-RULE 4 — ANCHORED LITERAL QUOTES (exact_quote):
-   • NUMERIC/STATISTICAL FIELDS (Mean, SD, N, p-values, ICC): exact_quote MUST be the verbatim sentence or table cell
-     containing the exact statistical numbers, e.g., "mean pain VAS: 4.2 ± 1.3 at baseline".
-   • QUALITATIVE FIELDS: exact_quote MUST be a continuous literal sentence of 8–15 words from the text.
-   • DO NOT use isolated short numbers (e.g., "17", "07") without surrounding context.
-
-RULE 5 — SEPARATE DATA REQUIRED (MIXED SAMPLE):
-   If the study includes a MIXED sample that combines breast cancer patients receiving CHEMOTHERAPY with patients undergoing
-   OTHER treatment types (radiotherapy, immunotherapy, hormone therapy) OR other cancer types, AND the pain/outcome data
-   is NOT reported separately for the chemotherapy-only breast cancer subgroup:
+RULE 4 — SEPARATE DATA REQUIRED (MIXED POPULATIONS):
+   If the clinical trial sample MIXES women with breast cancer on chemotherapy with:
+   (a) Other cancer types (e.g., colon, lung, prostate), OR
+   (b) Other treatment modalities (e.g., radiation therapy alone, hormone/endocrine therapy, immunotherapy) WITHOUT reporting pain outcomes separately for the chemotherapy breast cancer group:
    • Set "valor" = "separate data required"
    • Set "status" = "separate-data-required"
-   • Set "status_detail" = brief explanation of the mixed groups (e.g., "Sample includes breast cancer patients on chemo,
-     radio, and hormone therapy combined; pain data not separated by treatment type")
+   • Set "status_detail" = "Mixed sample (e.g., breast cancer receiving chemotherapy combined with other therapies/cancers); subgroup pain data not reported separately."
    • Set "exact_quote" = ""
-   This means a contact request will be sent to the study authors for disaggregated data.
+   (This flags the study for author contact to request disaggregated data).
 
-RULE 6 — GRAPH DIGITIZATION (Web Plot Digitizer):
-   If pain/outcome data are presented ONLY in bar charts, line graphs, or forest plots (not in text or tables):
-   • READ the graph axes carefully (Y-axis label, scale, and units; X-axis groups/timepoints).
-   • ESTIMATE the bar height or point position as accurately as possible.
-   • If error bars are present, estimate the SD or 95% CI span.
-   • Set "valor" = "graph-digitized: ~[estimated mean] ± [estimated SD or 95% CI]"
-     e.g., "graph-digitized: ~4.2 ± 1.1 (VAS, Figure 2)"
+RULE 5 — EXHAUSTIVE PAIN OUTCOME EXTRACTION (BASELINE, POST-INTERVENTION, CHANGE):
+   Pain is the primary outcome of interest. Search systematically in:
+   • RESULTS SECTION (headings: Pain, Symptoms, Secondary Outcomes, Adverse Effects).
+   • MAIN TABLES (Tables 1, 2, 3, 4) AND SUPPLEMENTARY TABLES (Extended Data, Online Resource).
+   • FIGURES (bar charts, line plots with error bars, boxplots).
+   Identify and extract values for:
+   - Baseline_Exercise_1_Mean & SD (Intervention Group 1 at baseline)
+   - Baseline_Exercise_2_Mean & SD (Intervention Group 2 at baseline, if multi-arm)
+   - Baseline_Control_Mean & SD (Control / Usual Care at baseline)
+   - Post_Exercise_1_Mean & SD (Intervention Group 1 post-intervention)
+   - Post_Exercise_2_Mean & SD (Intervention Group 2 post-intervention)
+   - Post_Control_Mean & SD (Control Group post-intervention)
+   - Δ (Change scores = Post minus Baseline, Mean ± SD)
+   If pain is reported as Median and IQR (or 95% CI), extract it and state "(Median [IQR])" in valor.
+   MANDATORY: Always provide "location_hint" pointing to the exact table/figure and row/column, even if the value cannot be extracted with certainty.
+
+RULE 6 — WEB PLOT DIGITIZER (WHEN DATA IS REPORTED ONLY IN GRAPHS):
+   If pain scores are presented exclusively in figures/graphs (bar plots, line charts):
+   • Read the Y-axis scale carefully (0-10, 0-100, etc.).
+   • Estimate the mean bar height or dot position as closely as possible.
+   • Estimate the SD / 95% CI from the error whiskers.
+   • Set "valor" = "graph-digitized: ~[mean] ± [SD]" (e.g., "graph-digitized: ~3.8 ± 1.2")
    • Set "status" = "graph-digitized"
-   • Set "status_detail" = "Digitized from [Figure N]: [description of graph type, axes, and groups]"
-   • Set "exact_quote" = "Y-axis: [label and scale]; X-axis: [groups]; Estimated value: [group] ≈ [value]"
-   • MANDATORY: Also fill "location_hint" with "Figure N — [graph description]"
+   • Set "status_detail" = "Digitized from Figure X: [describe axes and groups]"
+   • Set "exact_quote" = "Y-axis: [scale]; X-axis: [groups]; Estimated value: [group] ≈ [value]"
+   • Set "location_hint" = "Figure X — [chart description]"
 
-RULE 7 — LOCATION HINT (MANDATORY for numeric fields):
-   For ALL pain/outcome numeric fields (baseline, post-intervention, delta, SD, N):
-   Even if you cannot extract the exact number, fill "location_hint" with where the reader should look:
-   e.g., "Table 2, Baseline Pain column, Exercise Group row" or "Figure 3 — post-intervention bar chart".
-   This allows the reviewer to navigate directly to the source in the PDF viewer.
+RULE 7 — MANDATORY SUPPLEMENTARY MATERIAL / APPENDIX SEARCH:
+   Examine ALL attached documents (manuscript + supplementary materials). Protocols and Extended Data tables frequently contain the primary pain numbers, detailed exercise prescriptions, or funding sources.
+   • When a data point is found in a supplementary document:
+     - Set "source_file" to the exact filename of that supplementary file.
+     - Set "status" to "supplementary".
+     - Specify the Supplementary Table or Section in "status_detail".
 
-══════════════════════════════════════════════════════════
+RULE 8 — JSON OUTPUT INTEGRITY (ZERO SYNTAX ERRORS):
+   • Return a clean, valid JSON object ONLY.
+   • No markdown code blocks (do NOT wrap with \`\`\`json).
+   • All internal quotes in text must be properly escaped with backslashes (\\").
+   • Never leave trailing commas before closing braces.
+   • Ensure all field names are double-quoted.
 
-Return STRICTLY a JSON object following this schema (no markdown code blocks):
+════════════════════════════════════════════════════════════════════════════
+
+Return STRICTLY a JSON object matching this schema:
 ${JSON.stringify(jsonStructure, null, 2)}
 
 Specific fields to extract:
@@ -1828,12 +1945,14 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                     const quote = activeExt && activeExt[v.key] ? activeExt[v.key].exact_quote : "";
                     const status = activeExt && activeExt[v.key] ? activeExt[v.key].status : "";
                     const locationHint = activeExt && activeExt[v.key] ? (activeExt[v.key].location_hint || "") : "";
+                    const sourceFile = activeExt && activeExt[v.key] ? (activeExt[v.key].source_file || "") : "";
+                    const statusDetail = activeExt && activeExt[v.key] ? (activeExt[v.key].status_detail || "") : "";
 
                     card.innerHTML += `
                         <div class="reviewer-block">
                             <div class="reviewer-tag"><span>Sua Extração (${activeReviewer})</span></div>
                             <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, '${activeReviewer}')">${escapeHtml(val)}</textarea>
-                            ${renderCitationButton(quote, status, v.key, val, locationHint)}
+                            ${renderCitationButton(quote, status, v.key, val, locationHint, sourceFile, statusDetail)}
                         </div>
                     `;
                 } else {
@@ -1843,18 +1962,22 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                     const status2 = extR2 && extR2[v.key] ? extR2[v.key].status : "";
                     const locationHint1 = extR1 && extR1[v.key] ? (extR1[v.key].location_hint || "") : "";
                     const locationHint2 = extR2 && extR2[v.key] ? (extR2[v.key].location_hint || "") : "";
+                    const sourceFile1 = extR1 && extR1[v.key] ? (extR1[v.key].source_file || "") : "";
+                    const sourceFile2 = extR2 && extR2[v.key] ? (extR2[v.key].source_file || "") : "";
+                    const statusDetail1 = extR1 && extR1[v.key] ? (extR1[v.key].status_detail || "") : "";
+                    const statusDetail2 = extR2 && extR2[v.key] ? (extR2[v.key].status_detail || "") : "";
 
                     card.innerHTML += `
                         <div class="reviewer-block" style="border-left: 3px solid #818cf8;">
                             <div class="reviewer-tag"><span>Revisor 1 (Principal)</span></div>
                             <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, 'R1')">${escapeHtml(val1)}</textarea>
-                            ${renderCitationButton(quote1, status1, v.key, val1, locationHint1)}
+                            ${renderCitationButton(quote1, status1, v.key, val1, locationHint1, sourceFile1, statusDetail1)}
                         </div>
 
                         <div class="reviewer-block" style="border-left: 3px solid #34d399;">
                             <div class="reviewer-tag"><span>Revisor 2 (Vitor Andrade)</span></div>
                             <textarea class="editable-val" onchange="updateManualValue('${v.key}', this.value, 'R2')">${escapeHtml(val2)}</textarea>
-                            ${renderCitationButton(quote2, status2, v.key, val2, locationHint2)}
+                            ${renderCitationButton(quote2, status2, v.key, val2, locationHint2, sourceFile2, statusDetail2)}
                         </div>
                     `;
                 }
@@ -1863,26 +1986,78 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
             });
         }
 
-        function renderCitationButton(quote, status, varKey, valor, locationHint) {
-            // Separate-data-required: mostre badge de alerta, sem link de PDF
+        function copyTextToClipboard(text, event) {
+            if (event) event.stopPropagation();
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.currentTarget;
+                const origText = btn.innerHTML;
+                btn.innerHTML = "✅ Copiado!";
+                btn.style.borderColor = "var(--success)";
+                setTimeout(() => {
+                    btn.innerHTML = origText;
+                    btn.style.borderColor = "";
+                }, 1500);
+            }).catch(() => {
+                prompt("Copie o trecho abaixo:", text);
+            });
+        }
+
+        function renderCitationButton(quote, status, varKey, valor, locationHint, sourceFile, statusDetail) {
+            // Separate-data-required: badge de alerta, sem link de PDF
             if (status === 'separate-data-required') {
                 return `<div class="citation-box" style="background:rgba(251,191,36,0.15); border-color:rgba(251,191,36,0.4); color:#fbbf24; cursor:default;">
                     ✉️ Contatar autores — amostra mista (dados separados necessários)
                 </div>`;
             }
+
+            const hasQuote = (quote && quote.trim().length >= 3);
+            const copyBtnHTML = hasQuote ? `
+                <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.75rem; flex-shrink:0;" onclick="copyTextToClipboard('${escapeJs(quote)}', event)" title="Copiar citação exata para a área de transferência">📋 Copiar</button>
+            ` : '';
+
             // Graph-digitized: badge especial + link para localizar figura no PDF
             if (status === 'graph-digitized') {
                 const hint = locationHint || quote || '';
-                return `<div class="citation-box" style="background:rgba(16,185,129,0.12); border-color:rgba(16,185,129,0.35); color:#34d399; cursor:pointer;" onclick="focusOnQuote('${escapeJs(hint)}', '${varKey}', '${escapeJs(valor)}')">
-                    📊 Digitalizado de gráfico — ${escapeHtml((locationHint || 'Ver figura').substring(0, 60))}
-                </div>`;
+                return `
+                    <div style="display:flex; gap:0.4rem; align-items:center;">
+                        <div class="citation-box" style="flex:1; background:rgba(16,185,129,0.12); border-color:rgba(16,185,129,0.35); color:#34d399; cursor:pointer;" onclick="focusOnQuote('${escapeJs(hint)}', '${varKey}', '${escapeJs(valor)}', '${escapeJs(sourceFile || '')}', '${escapeJs(locationHint || '')}')">
+                            📊 Gráfico — ${escapeHtml((locationHint || 'Ver figura').substring(0, 48))}
+                        </div>
+                        ${copyBtnHTML}
+                    </div>
+                `;
             }
-            // Normal: usa quote se disponível, fallback para locationHint
-            const searchTarget = (quote && quote.length >= 3) ? quote : (locationHint || '');
-            const displayText = (quote && quote.length >= 3)
-                ? '🔍 Local no PDF: "' + escapeHtml(quote.substring(0, 55)) + '..."'
-                : (locationHint ? '📍 ' + escapeHtml(locationHint.substring(0, 70)) : '🔍 Localizar no PDF');
-            return `<div class="citation-box" onclick="focusOnQuote('${escapeJs(searchTarget)}', '${varKey}', '${escapeJs(valor)}')">${displayText}</div>`;
+
+            // Normal ou Suplementar
+            const isSupplementary = (status === 'supplementary') || 
+                                    (sourceFile && sourceFile.toLowerCase().includes('supl')) || 
+                                    (statusDetail && statusDetail.toLowerCase().includes('supl')) ||
+                                    (locationHint && locationHint.toLowerCase().includes('supl'));
+
+            const searchTarget = hasQuote ? quote : (locationHint || '');
+            let labelPrefix = isSupplementary ? '📑 Suplementar' : '🔍 Local';
+            if (sourceFile && !isSupplementary) {
+                const shortFileName = sourceFile.replace(/^.*[\\\/]/, '').substring(0, 14);
+                labelPrefix = `📄 ${shortFileName}`;
+            }
+
+            const displayText = hasQuote
+                ? `${labelPrefix}: "${escapeHtml(quote.substring(0, 48))}..."`
+                : (locationHint ? `📍 ${labelPrefix}: ${escapeHtml(locationHint.substring(0, 52))}` : `${labelPrefix} no PDF`);
+
+            const boxStyle = isSupplementary 
+                ? 'background:rgba(99, 102, 241, 0.15); border-color:rgba(99, 102, 241, 0.4); color:#a5b4fc;'
+                : '';
+
+            return `
+                <div style="display:flex; gap:0.4rem; align-items:center;">
+                    <div class="citation-box" style="flex:1; ${boxStyle}" onclick="focusOnQuote('${escapeJs(searchTarget)}', '${varKey}', '${escapeJs(valor)}', '${escapeJs(sourceFile || '')}', '${escapeJs(locationHint || '')}')">
+                        ${displayText}
+                    </div>
+                    ${copyBtnHTML}
+                </div>
+            `;
         }
 
         function updateManualValue(varKey, newVal, reviewer) {
@@ -1956,7 +2131,7 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
             return { start: abstractIdx, end: endIdx };
         }
 
-        // Strict Metadata-Filtered Quote Matcher (NO short digit matching, NO DOI/Header/Abstract matching)
+        // Strict Metadata-Filtered Quote Matcher
         function findQuoteInPageSpans(layer, quote) {
             const pageNum = parseInt(layer.id.replace('text-layer-', '')) || 1;
             const spans = Array.from(layer.querySelectorAll('span'));
@@ -1981,15 +2156,15 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
             });
 
             const cleanQuote = normalizeTextForMatch(quote);
-            if (cleanQuote.length < 10) return null;
+            if (cleanQuote.length < 8) return null;
 
             const candidateSnippets = [];
-            if (cleanQuote.length >= 10) candidateSnippets.push(cleanQuote);
+            if (cleanQuote.length >= 8) candidateSnippets.push(cleanQuote);
             if (cleanQuote.length >= 15) candidateSnippets.push(cleanQuote.substring(0, Math.min(30, cleanQuote.length)));
             if (cleanQuote.length >= 25) candidateSnippets.push(cleanQuote.substring(cleanQuote.length - 25));
 
             for (let snippet of candidateSnippets) {
-                if (!snippet || snippet.length < 10) continue;
+                if (!snippet || snippet.length < 8) continue;
                 const matchIdx = normPageText.indexOf(snippet);
                 if (matchIdx !== -1) {
                     const matchEnd = matchIdx + snippet.length;
@@ -2005,12 +2180,40 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
         }
 
         // focusOnQuote — busca a citação em TODOS os arquivos do estudo,
-        // alternando automaticamente para o documento correto quando encontrada
-        async function focusOnQuote(quote, varKey, valor) {
+        // alternando automaticamente para o material suplementar ou documento correto
+        async function focusOnQuote(quote, varKey, valor, sourceFile, locationHint) {
             // Limpa highlights anteriores
             document.querySelectorAll('.textLayer span.highlight-active').forEach(el => {
                 el.classList.remove('highlight-active');
             });
+
+            const study = studies.find(s => s.id === activeStudyId);
+
+            // 1. Se sourceFile foi informado ou o dado é explicitamente suplementar,
+            // verifica se precisamos alternar imediatamente para esse arquivo!
+            if (study && study.files.length > 1) {
+                let targetFile = null;
+
+                if (sourceFile) {
+                    const cleanSource = sourceFile.toLowerCase().trim();
+                    targetFile = study.files.find(f => 
+                        f.name.toLowerCase().includes(cleanSource) || 
+                        cleanSource.includes(f.name.toLowerCase().replace(/📑\s*\[suplementar\]\s*/i, ''))
+                    );
+                }
+
+                // Se não achou pelo nome mas o status ou location_hint indica suplemento:
+                if (!targetFile && ((sourceFile && sourceFile.toLowerCase().includes('supl')) || 
+                                    (locationHint && locationHint.toLowerCase().includes('supl')))) {
+                    targetFile = study.files.find(f => !f.isPrimary);
+                }
+
+                if (targetFile && targetFile.id !== activeFileId) {
+                    await switchActiveFile(targetFile.id);
+                    // Aguarda breve intervalo para carregar a camada de texto
+                    await new Promise(r => setTimeout(r, 450));
+                }
+            }
 
             if (!quote || quote.trim().length < 3) {
                 const page1 = document.getElementById('page-wrapper-1');
@@ -2018,7 +2221,7 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                 return;
             }
 
-            // 1. Tenta encontrar no documento ATUALMENTE visível no viewer
+            // 2. Tenta encontrar a citação no documento ATUALMENTE visível no viewer
             const currentLayers = Array.from(document.querySelectorAll('.textLayer'));
             for (let layer of currentLayers) {
                 const matchedSpans = findQuoteInPageSpans(layer, quote);
@@ -2029,24 +2232,20 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                 }
             }
 
-            // 2. Não encontrou — busca nos OUTROS arquivos do estudo
-            const study = studies.find(s => s.id === activeStudyId);
+            // 3. Se não encontrou, busca nos OUTROS arquivos do estudo
             if (!study || study.files.length <= 1) {
-                // Apenas 1 arquivo e não encontrou: rola ao topo
                 const page1 = document.getElementById('page-wrapper-1');
                 if (page1) page1.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 return;
             }
 
             const cleanQuoteNorm = normalizeTextForMatch(quote);
-            if (cleanQuoteNorm.length < 10) return;
 
-            // Itera pelos outros arquivos do estudo (excluindo o atual)
+            // Itera pelos outros arquivos do estudo
             for (const fileObj of study.files) {
                 if (fileObj.id === activeFileId) continue;
                 if (!fileObj.base64 || !(fileObj.type || '').includes('pdf')) continue;
 
-                // Carrega o PDF deste arquivo em memória para extração de texto
                 let testDoc = null;
                 try {
                     const pdfBytes = base64ToUint8Array(fileObj.base64);
@@ -2060,7 +2259,6 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                     const page = await testDoc.getPage(pageNum);
                     const textContent = await page.getTextContent();
 
-                    // Constrói texto normalizado desta página para busca
                     let normPageText = '';
                     const items = textContent.items || [];
                     for (const item of items) {
@@ -2069,12 +2267,11 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                         }
                     }
 
-                    // Verifica se a citação existe nesta página
                     const snippets = [
                         cleanQuoteNorm,
                         cleanQuoteNorm.length >= 15 ? cleanQuoteNorm.substring(0, Math.min(30, cleanQuoteNorm.length)) : null,
                         cleanQuoteNorm.length >= 25 ? cleanQuoteNorm.substring(cleanQuoteNorm.length - 25) : null
-                    ].filter(s => s && s.length >= 10);
+                    ].filter(s => s && s.length >= 8);
 
                     const found = snippets.some(snippet => normPageText.includes(snippet));
                     if (found) {
@@ -2084,23 +2281,19 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                         // Alterna para o arquivo correto e aguarda renderização
                         await switchActiveFile(fileObj.id);
 
-                        // Espera o textLayer ser renderizado (até 3 segundos)
                         const targetPageId = `text-layer-${pageNum}`;
                         let waited = 0;
-                        const waitInterval = 200;
-                        const maxWait = 3000;
                         await new Promise(resolve => {
                             const checkReady = setInterval(() => {
                                 const layer = document.getElementById(targetPageId);
-                                if ((layer && layer.querySelectorAll('span').length > 0) || waited >= maxWait) {
+                                if ((layer && layer.querySelectorAll('span').length > 0) || waited >= 2500) {
                                     clearInterval(checkReady);
                                     resolve();
                                 }
-                                waited += waitInterval;
-                            }, waitInterval);
+                                waited += 150;
+                            }, 150);
                         });
 
-                        // Agora busca e destaca a citação no viewer atualizado
                         const allLayers = Array.from(document.querySelectorAll('.textLayer'));
                         for (let layer of allLayers) {
                             const matchedSpans = findQuoteInPageSpans(layer, quote);
@@ -2110,19 +2303,34 @@ ${variablesSchema.map(v => `- ${v.key}: ${v.prompt}`).join('\n')}
                                 return;
                             }
                         }
-                        // Encontrou o arquivo mas não achou o span exato — rola para a página certa
+
                         const pageWrapper = document.getElementById(`page-wrapper-${pageNum}`);
                         if (pageWrapper) pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         return;
                     }
+                }
+                if (!foundInFile) {
+                    try { testDoc.destroy(); } catch(e) {}
+                }
+            }
 
-                    if (!foundInFile) {
-                        try { testDoc.destroy(); } catch(e) {}
+            // 4. Se não achou o span exato, mas há locationHint (ex: "Table 2", "Figure 3"):
+            if (locationHint) {
+                const hintNorm = normalizeTextForMatch(locationHint);
+                const allLayers = Array.from(document.querySelectorAll('.textLayer'));
+                for (let layer of allLayers) {
+                    const spans = Array.from(layer.querySelectorAll('span'));
+                    for (let s of spans) {
+                        if (normalizeTextForMatch(s.textContent).includes(hintNorm.substring(0, 12))) {
+                            s.classList.add('highlight-active');
+                            s.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            return;
+                        }
                     }
                 }
             }
 
-            // Não encontrou em nenhum arquivo — rola ao topo do atual
+            // Rola ao topo do documento ativo como fallback
             const page1 = document.getElementById('page-wrapper-1');
             if (page1) page1.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
